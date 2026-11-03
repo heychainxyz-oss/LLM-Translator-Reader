@@ -1,0 +1,9 @@
+# 运行依赖（Python 3.10+）
+fastapi>=0.115.0,<1.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+PyMuPDF>=1.24.0
+EbookLib>=0.18
+beautifulsoup4>=4.12.0
+requests>=2.31.0
+qrcode>=7.4

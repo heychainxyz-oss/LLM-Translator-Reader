@@ -1,0 +1,20 @@
+{
+  "name": "德语智读 · German AI Reader",
+  "short_name": "德语智读",
+  "description": "本地优先的德语 AI 阅读器：章节导读、划词精讲与多轮追问。",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f3ecdd",
+  "theme_color": "#9a5b32",
+  "icons": [
+    {
+      "src": "/static/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

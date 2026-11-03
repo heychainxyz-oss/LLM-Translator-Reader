@@ -1,0 +1,3 @@
+# 可选：pywebview 独立桌面窗口
+-r requirements.txt
+pywebview>=5.0

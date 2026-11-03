@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 本地数据与密钥（绝不提交）
+reader_data.db
+reader_data.db-shm
+reader_data.db-wal
+reader.log
+uploads/*
+!uploads/.gitkeep
+DeepSeek API Key.txt
+*.key
+
+# 测试与运行产物
+_tmp_samples/
+test-results/
+playwright-report/
+*.pdf
+*.epub
+!samples/*.pdf
+!samples/*.epub
+
+# 系统
+.DS_Store
+Thumbs.db

@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f3ecdd">
+  <meta name="description" content="德语智读：本地优先的德语 AI 阅读器。PDF/TXT/EPUB 解析、章节导读、划词精讲与多轮追问。">
+  <title>德语智读 · German AI Reader</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/style.css?v=1.2.2">
+</head>
+<body>
+  <!-- ========================= SVG 图标库 ========================= -->
+  <svg class="svg-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-book" viewBox="0 0 24 24">
+      <path d="M12 6.2C9.6 4.7 7 4.3 4 5.2v13.4c3-.9 5.6-.5 8 1 2.4-1.5 5-1.9 8-1V5.2c-3-.9-5.6-.5-8 1Z"/>
+      <path d="M12 6.2v13.4M7 8.4c1.2-.2 2.4 0 3.4.5M7 11.6c1.2-.2 2.4 0 3.4.5M13.6 8.9c1-.5 2.2-.7 3.4-.5M13.6 12.1c1-.5 2.2-.7 3.4-.5"/>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24">
+      <path d="M12 5v14M5 12h14"/>
+    </symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24">
+      <path d="M4 7h10M18 7h2M4 17h2M10 17h10"/>
+      <circle cx="16" cy="7" r="2.4"/><circle cx="8" cy="17" r="2.4"/>
+    </symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="4.2"/>
+      <path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4"/>
+    </symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24">
+      <path d="M20.5 14.2A8.6 8.6 0 0 1 9.8 3.5 8.6 8.6 0 1 0 20.5 14.2Z"/>
+    </symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24">
+      <path d="M4 6h16M4 12h16M4 18h16"/>
+    </symbol>
+    <symbol id="i-close" viewBox="0 0 24 24">
+      <path d="m6 6 12 12M18 6 6 18"/>
+    </symbol>
+    <symbol id="i-search" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>
+    </symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24">
+      <path d="M19 12H5M11 18l-6-6 6-6"/>
+    </symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24">
+      <path d="M5 12h14M13 6l6 6-6 6"/>
+    </symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24">
+      <path d="m14.5 5.5-7 6.5 7 6.5"/>
+    </symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24">
+      <path d="m9.5 5.5 7 6.5-7 6.5"/>
+    </symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24">
+      <path d="M20 11a8 8 0 1 0-2.3 6.2M20 5v6h-6"/>
+    </symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24">
+      <path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 12.5h9l1-12.5M10 11v5M14 11v5"/>
+    </symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24">
+      <path d="M4 10v4h3.5L13 18V6L7.5 10H4Z"/>
+      <path d="M16.5 9a4.5 4.5 0 0 1 0 6M19 6.5a8 8 0 0 1 0 11"/>
+    </symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24">
+      <rect x="9" y="3" width="6" height="11" rx="3"/>
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6"/>
+    </symbol>
+    <symbol id="i-send" viewBox="0 0 24 24">
+      <path d="m4 4 16 8-16 8 3-8-3-8Z"/><path d="M7 12h13"/>
+    </symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24">
+      <rect x="9" y="9" width="11" height="11" rx="2"/>
+      <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/>
+    </symbol>
+    <symbol id="i-download" viewBox="0 0 24 24">
+      <path d="M12 3v12M7 10l5 5 5-5M4 20h16"/>
+    </symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24">
+      <path d="M12 3.5 13.8 9l5.7 1.8-5.7 1.8L12 18.2l-1.8-5.6L4.5 10.8 10.2 9 12 3.5Z"/>
+      <path d="M19 16.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z"/>
+    </symbol>
+    <symbol id="i-info" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.5"/><path d="M12 11v6M12 7.5v.5"/>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24">
+      <path d="m5 12.5 4.5 4.5L19 7.5"/>
+    </symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24">
+      <rect x="4.5" y="10" width="15" height="10.5" rx="2"/>
+      <path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+    </symbol>
+    <symbol id="i-layout" viewBox="0 0 24 24">
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2"/>
+      <path d="M9 4.5v15M15 4.5v15"/>
+    </symbol>
+    <symbol id="i-external" viewBox="0 0 24 24">
+      <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>
+    </symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24">
+      <path d="m15 5 4 4L8.5 19.5H4.5V15.5L15 5Z"/><path d="m13 7 4 4"/>
+    </symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24">
+      <path d="M12 19V5M6 11l6-6 6 6"/>
+    </symbol>
+  </svg>
+
+  <div id="app" class="app">
+    <!-- ============================================================ -->
+    <!-- 书架                                                          -->
+    <!-- ============================================================ -->
+    <section id="library-view" class="view library-view">
+      <header class="topbar library-topbar">
+        <a class="brand" href="#" id="brand-home" aria-label="德语智读首页">
+          <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-book"></use></svg></span>
+          <span class="brand-text"><strong>德语智读</strong><small>GERMAN AI READER</small></span>
+        </a>
+        <div class="topbar-actions">
+          <span id="library-connection" class="connection-pill" title="本地服务状态">
+            <span class="dot"></span><span id="library-connection-text">连接中</span>
+          </span>
+          <button class="icon-btn" id="library-theme-toggle" type="button" title="切换主题" aria-label="切换主题">
+            <svg class="icon" aria-hidden="true"><use href="#i-moon"></use></svg>
+          </button>
+          <button class="icon-btn" id="library-settings" type="button" title="设置" aria-label="设置">
+            <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>
+          </button>
+          <button class="btn primary" id="import-open" type="button" title="导入书籍" aria-label="导入书籍">
+            <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg><span>导入书籍</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="library-main">
+        <section class="library-hero">
+          <div class="hero-copy">
+            <p class="eyebrow">DEUTSCH · AI READER</p>
+            <h1>读德语，<br><span>读懂字里行间。</span></h1>
+            <p class="hero-lead">本地解析 PDF / TXT / EPUB，AI 为每一章准备导读与探究问题，划词即得语法、词汇与文化背景的精讲。</p>
+            <div class="hero-actions">
+              <button class="btn primary lg" id="hero-import" type="button">
+                <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>导入第一本书
+              </button>
+              <button class="btn ghost lg" id="hero-continue" type="button" hidden>
+                <svg class="icon" aria-hidden="true"><use href="#i-book"></use></svg><span id="hero-continue-label">继续阅读</span>
+              </button>
+            </div>
+            <p class="hero-note"><svg class="icon" aria-hidden="true"><use href="#i-lock"></use></svg>书籍、笔记与 API Key 全部留在本机 · 不走云端中转</p>
+          </div>
+          <div class="hero-preview" aria-hidden="true">
+            <div class="preview-sheet">
+              <span class="preview-chapter">ERSTES KAPITEL</span>
+              <p class="preview-text" lang="de">Jemand musste Josef K. verleumdet haben, denn ohne dass er etwas Böses getan hätte, wurde er eines Morgens <mark>verhaftet</mark>.</p>
+              <p class="preview-text faded" lang="de">Die Köchin der Frau Grubach, seiner Zimmervermieterin, die ihm jeden Tag gegen acht Uhr das Frühstück brachte, kam diesmal nicht.</p>
+              <div class="preview-annotation">
+                <span class="preview-annotation-icon"><svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg></span>
+                <div><strong>verhaftet</strong><span>verhaften 的第二分词 · 被动态</span></div>
+              </div>
+            </div>
+            <div class="preview-spine"></div>
+          </div>
+        </section>
+
+        <section class="library-section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">DEINE BIBLIOTHEK</p>
+              <h2>我的书架</h2>
+            </div>
+            <p class="library-stats" id="library-stats">正在读取…</p>
+          </div>
+
+          <div id="library-loading" class="book-grid" aria-hidden="true">
+            <div class="book-card skeleton-card"><div class="skeleton cover-skeleton"></div><div class="skeleton line w70"></div><div class="skeleton line w40"></div></div>
+            <div class="book-card skeleton-card"><div class="skeleton cover-skeleton"></div><div class="skeleton line w60"></div><div class="skeleton line w30"></div></div>
+            <div class="book-card skeleton-card"><div class="skeleton cover-skeleton"></div><div class="skeleton line w80"></div><div class="skeleton line w50"></div></div>
+          </div>
+
+          <div id="library-empty" class="library-empty" hidden>
+            <div class="empty-illustration">
+              <svg viewBox="0 0 120 120" aria-hidden="true">
+                <path d="M20 32c0-5 4-9 9-9h55v66H29c-5 0-9 4-9 9V32Z" fill="none" stroke="currentColor" stroke-width="2.5"/>
+                <path d="M20 98c0-5 4-9 9-9h55" fill="none" stroke="currentColor" stroke-width="2.5"/>
+                <path d="M40 45h32M40 56h24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                <circle cx="88" cy="80" r="18" fill="var(--surface)" stroke="currentColor" stroke-width="2.5"/>
+                <path d="M88 72v16M80 80h16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <h3>书架还是空的</h3>
+            <p>导入一本德语 PDF、TXT 或 EPUB，几秒后就能开始读。</p>
+            <button class="btn primary" id="empty-import" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>选择文件</button>
+            <p class="hint">也可以把文件直接拖进这个窗口</p>
+          </div>
+
+          <div id="book-grid" class="book-grid" hidden></div>
+        </section>
+      </main>
+
+      <footer class="library-footer">
+        <span>本地优先 · SQLite 持久化 · DeepSeek / Gemini 双模型</span>
+        <span id="library-footer-version">v1.2.2</span>
+      </footer>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- 阅读器                                                        -->
+    <!-- ============================================================ -->
+    <section id="reader-view" class="view reader-view" hidden>
+      <header class="topbar reader-topbar">
+        <div class="reader-topbar-left">
+          <button class="icon-btn" id="back-to-library" type="button" title="返回书架" aria-label="返回书架">
+            <svg class="icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>
+          </button>
+          <button class="icon-btn mobile-only" id="left-toggle" type="button" title="目录与背景" aria-label="打开目录">
+            <svg class="icon" aria-hidden="true"><use href="#i-menu"></use></svg>
+          </button>
+          <div class="reader-book-id">
+            <span id="reader-book-title" class="reader-book-title">—</span>
+            <span id="reader-chapter-label" class="reader-chapter-label">—</span>
+          </div>
+        </div>
+        <div class="reader-topbar-center">
+          <div class="segmented" id="mode-switch" role="group" aria-label="阅读模式">
+            <button type="button" data-mode="scroll" title="连续滚动">滑动</button>
+            <button type="button" data-mode="paginated" title="分页阅读">翻页</button>
+          </div>
+          <div class="font-controls" role="group" aria-label="字号">
+            <button type="button" id="font-decrease" title="减小字号">A−</button>
+            <span id="font-size-label" class="font-size-label">21</span>
+            <button type="button" id="font-increase" title="增大字号">A+</button>
+          </div>
+        </div>
+        <div class="reader-topbar-right">
+          <button class="icon-btn" id="reader-theme-toggle" type="button" title="切换主题" aria-label="切换主题">
+            <svg class="icon" aria-hidden="true"><use href="#i-moon"></use></svg>
+          </button>
+          <button class="icon-btn" id="reader-settings" type="button" title="设置" aria-label="设置">
+            <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>
+          </button>
+          <button class="icon-btn mobile-only" id="right-toggle" type="button" title="AI 私教" aria-label="打开 AI 私教">
+            <svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg>
+          </button>
+        </div>
+        <div class="reader-loading-bar" id="reader-loading-bar" hidden></div>
+      </header>
+
+      <div class="reader-body">
+        <aside class="sidebar sidebar-left" id="sidebar-left" aria-label="目录与背景">
+          <div class="sidebar-tabs" role="tablist">
+            <button type="button" class="active" data-sidebar-tab="toc" role="tab" aria-selected="true">目录</button>
+            <button type="button" data-sidebar-tab="background" role="tab" aria-selected="false">全书背景</button>
+            <button type="button" data-sidebar-tab="search" role="tab" aria-selected="false">搜索</button>
+          </div>
+          <div class="sidebar-panels">
+            <div class="sidebar-panel active" data-sidebar-panel="toc" role="tabpanel">
+              <div class="sidebar-panel-head">
+                <span>章节目录</span><span id="toc-count" class="muted-small">—</span>
+              </div>
+              <div id="toc-list" class="toc-list"></div>
+            </div>
+            <div class="sidebar-panel" data-sidebar-panel="background" role="tabpanel">
+              <div class="sidebar-panel-head">
+                <span>全书背景</span>
+                <button class="link-btn" id="background-regenerate" type="button" hidden>重新生成</button>
+              </div>
+              <div id="background-content" class="background-content"></div>
+            </div>
+            <div class="sidebar-panel" data-sidebar-panel="search" role="tabpanel">
+              <form id="search-form" class="search-form">
+                <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
+                <input id="search-input" type="search" placeholder="在本书中搜索…" autocomplete="off" aria-label="在本书中搜索">
+                <button type="submit" class="icon-btn small" aria-label="搜索"><svg class="icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg></button>
+              </form>
+              <div id="search-results" class="search-results">
+                <p class="panel-hint">输入至少 2 个字符，可搜索全书正文并跳转。</p>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <main class="reader-main" id="reader-main">
+          <div id="reading-surface" class="reading-surface scroll-mode">
+            <div id="reading-content" class="reading-content">
+              <div class="reader-skeleton" id="reader-skeleton">
+                <div class="skeleton line w30"></div>
+                <div class="skeleton line w80 tall"></div>
+                <div class="skeleton line w100"></div>
+                <div class="skeleton line w95"></div>
+                <div class="skeleton line w90"></div>
+                <div class="skeleton line w40"></div>
+              </div>
+            </div>
+          </div>
+          <footer class="reader-footer" id="reader-footer">
+            <button class="page-btn" id="footer-prev" type="button" aria-label="上一页">
+              <svg class="icon" aria-hidden="true"><use href="#i-chevron-left"></use></svg>
+            </button>
+            <div class="footer-center">
+              <span class="footer-label" id="footer-label">正在载入…</span>
+              <div class="progress-track"><div class="progress-fill" id="footer-progress"></div></div>
+            </div>
+            <button class="page-btn" id="footer-next" type="button" aria-label="下一页">
+              <svg class="icon" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+            </button>
+          </footer>
+        </main>
+
+        <aside class="sidebar sidebar-right" id="sidebar-right" aria-label="AI 私教">
+          <div id="ai-key-warning" class="ai-key-warning" hidden>
+            <svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg>
+            <div><strong>还没有配置 API Key</strong><p>划词解析与章节导读需要模型服务。Key 只保存在本机。</p></div>
+            <button class="link-btn" id="ai-open-settings" type="button">去设置</button>
+          </div>
+
+          <div id="ai-empty" class="ai-empty">
+            <div class="ai-empty-art">
+              <span class="ai-empty-quote">Wort<br>für<br>Wort.</span>
+              <svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg>
+            </div>
+            <h3>选中一个词，<br>让文字慢下来。</h3>
+            <p>在正文中划选德语词句，AI 会拆解词义、语法与语气；点击已有的暖黄高亮，可零消耗重看解析与追问。</p>
+          </div>
+
+          <div id="ai-content" class="ai-content" hidden>
+            <section class="selection-card" id="selection-card">
+              <div class="selection-card-head">
+                <span class="selection-card-label">当前选中</span>
+                <span id="annotation-cache-badge" class="cache-badge" hidden>已缓存</span>
+              </div>
+              <p class="selection-word" id="selection-word">—</p>
+              <div class="selection-actions">
+                <button class="icon-text-btn" id="speak-selection" type="button" title="朗读选中的德语">
+                  <svg class="icon" aria-hidden="true"><use href="#i-volume"></use></svg>朗读
+                </button>
+                <button class="icon-text-btn" id="regenerate-explanation" type="button" title="重新生成解析（消耗一次调用）">
+                  <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>重新生成
+                </button>
+                <button class="icon-text-btn danger" id="delete-annotation" type="button" title="删除高亮与追问">
+                  <svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg>删除
+                </button>
+              </div>
+            </section>
+
+            <section class="explanation-block">
+              <div class="explanation-toolbar">
+                <span id="explanation-overflow-hint" class="overflow-hint" hidden>可滚动</span>
+                <button class="link-btn" id="toggle-explanation" type="button">收起解析</button>
+              </div>
+              <div id="explanation-loading" class="explanation-loading" hidden>
+                <span class="typing-dots"><i></i><i></i><i></i></span>
+                <span>AI 正在逐层拆解这段德语…</span>
+              </div>
+              <article id="explanation" class="markdown" tabindex="-1"></article>
+              <div id="explanation-error" class="explanation-error" hidden>
+                <p id="explanation-error-text">解析失败。</p>
+                <button class="btn small" id="retry-annotation" type="button">重试</button>
+              </div>
+            </section>
+
+            <section class="chat-section" id="chat-section">
+              <div class="chat-head">
+                <span><svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg>针对此处继续追问</span>
+                <button class="link-btn" id="clear-chat" type="button">清空</button>
+              </div>
+              <div id="chat-messages" class="chat-messages">
+                <p class="panel-hint" id="chat-empty">还没有追问。可以问「为什么这里用 hätte？」或「这个介词能否换成 für？」</p>
+              </div>
+              <form id="chat-form" class="chat-form">
+                <textarea id="chat-input" rows="1" maxlength="2000" placeholder="输入追问，Enter 发送…" aria-label="追问内容"></textarea>
+                <div class="chat-actions">
+                  <button class="icon-btn ghost" id="voice-lang" type="button" title="切换语音识别语言">中</button>
+                  <button class="icon-btn ghost" id="mic-button" type="button" title="语音输入" aria-label="语音输入">
+                    <svg class="icon" aria-hidden="true"><use href="#i-mic"></use></svg>
+                  </button>
+                  <button class="icon-btn primary" id="chat-send" type="submit" title="发送" aria-label="发送">
+                    <svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg>
+                  </button>
+                </div>
+              </form>
+              <p class="chat-voice-note">按住空格语音输入 · 松开后 Enter 发送</p>
+              <p class="chat-disclaimer">AI 可能出错，语法与史实请交叉核对。</p>
+            </section>
+          </div>
+        </aside>
+      </div>
+
+      <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+
+      <div id="selection-toolbar" class="selection-toolbar" hidden role="toolbar" aria-label="划词操作">
+        <button type="button" class="st-primary" data-selection-action="explain">
+          <svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg>AI 精讲
+        </button>
+        <button type="button" data-selection-action="speak" title="朗读">
+          <svg class="icon" aria-hidden="true"><use href="#i-volume"></use></svg>
+        </button>
+        <button type="button" data-selection-action="copy" title="复制">
+          <svg class="icon" aria-hidden="true"><use href="#i-copy"></use></svg>
+        </button>
+        <button type="button" data-selection-action="dismiss" title="关闭">
+          <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- 导入弹窗                                                      -->
+  <!-- ============================================================ -->
+  <div class="modal" id="modal-import" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="import-title">
+      <header class="modal-head">
+        <div><p class="eyebrow">NEUES BUCH</p><h2 id="import-title">导入一本德语书</h2></div>
+        <button class="icon-btn" type="button" data-close-modal aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
+      </header>
+      <div class="modal-body">
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="选择或拖入书籍文件">
+          <input type="file" id="file-input" accept=".pdf,.txt,.epub,.md" hidden>
+          <div class="dropzone-icon"><svg class="icon" aria-hidden="true"><use href="#i-book"></use></svg></div>
+          <p><strong>拖拽文件到这里</strong>，或 <span class="link-underline">点击选择</span></p>
+          <p class="hint">支持 PDF · TXT · EPUB · Markdown，最大 200 MB</p>
+          <div id="file-chosen" class="file-chosen" hidden>
+            <span class="file-type" id="file-type">TXT</span>
+            <span class="file-name" id="file-name"></span>
+            <span class="file-size" id="file-size"></span>
+            <button type="button" class="icon-btn small" id="file-remove" aria-label="移除文件"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
+          </div>
+        </div>
+        <details class="advanced-fields">
+          <summary>手动指定书名 / 作者（可选）</summary>
+          <div class="field-row">
+            <label class="field"><span>书名</span><input id="import-title-input" type="text" maxlength="180" placeholder="留空则自动识别"></label>
+            <label class="field"><span>作者</span><input id="import-author-input" type="text" maxlength="120" placeholder="留空则自动识别"></label>
+          </div>
+        </details>
+        <p class="form-error" id="import-error" hidden></p>
+        <div id="import-progress" class="import-progress" hidden>
+          <div class="import-progress-head"><span class="spinner"></span><strong id="import-progress-title">正在上传…</strong></div>
+          <ol class="import-stages">
+            <li data-stage="0" class="active">上传原始文件</li>
+            <li data-stage="1">解析德文结构与章节</li>
+            <li data-stage="2">建立段落与高亮索引</li>
+            <li data-stage="3">排队生成 AI 导读</li>
+          </ol>
+          <p class="hint">解析在本机完成；章节导读与全书背景会在后台生成，不阻塞阅读。</p>
+        </div>
+      </div>
+      <footer class="modal-foot">
+        <span class="hint" id="import-foot-hint">文件只保存在本机 uploads/ 目录</span>
+        <div class="modal-foot-actions">
+          <button class="btn ghost" type="button" data-close-modal>取消</button>
+          <button class="btn primary" type="button" id="import-submit" disabled>开始导入</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- 设置弹窗                                                      -->
+  <!-- ============================================================ -->
+  <div class="modal" id="modal-settings" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-panel modal-panel-lg" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <header class="modal-head">
+        <div><p class="eyebrow">EINSTELLUNGEN</p><h2 id="settings-title">设置</h2></div>
+        <button class="icon-btn" type="button" data-close-modal aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
+      </header>
+      <div class="settings-tabs" role="tablist">
+        <button type="button" class="active" data-settings-tab="ai" role="tab">AI 模型</button>
+        <button type="button" data-settings-tab="prompt" role="tab">划词 Prompt</button>
+        <button type="button" data-settings-tab="reading" role="tab">阅读体验</button>
+        <button type="button" data-settings-tab="about" role="tab">连接与数据</button>
+      </div>
+      <div class="modal-body settings-body">
+        <section class="settings-panel active" data-settings-panel="ai">
+          <div class="settings-section-head">
+            <h3>选择模型服务</h3>
+            <p>切换后立即生效。Key 仅写入本机数据库，界面只显示脱敏提示。</p>
+          </div>
+          <div class="provider-grid">
+            <label class="provider-card" data-provider="deepseek">
+              <input type="radio" name="active-model" value="deepseek">
+              <span class="provider-mark deepseek">DS</span>
+              <span class="provider-copy"><strong>DeepSeek</strong><small>中文讲解细腻，支持联网检索</small></span>
+              <span class="status-dot" id="settings-deepseek-dot"></span>
+            </label>
+            <label class="provider-card" data-provider="gemini">
+              <input type="radio" name="active-model" value="gemini">
+              <span class="provider-mark gemini">G</span>
+              <span class="provider-copy"><strong>Gemini</strong><small>响应快，适合长文本与多模态</small></span>
+              <span class="status-dot" id="settings-gemini-dot"></span>
+            </label>
+          </div>
+
+          <div class="settings-card">
+            <div class="field">
+              <label for="deepseek-key"><span>DeepSeek API Key</span><span class="field-note" id="deepseek-key-hint">未配置</span></label>
+              <div class="input-group">
+                <input id="deepseek-key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false">
+                <button type="button" class="input-btn" data-toggle-key="deepseek-key">显示</button>
+                <button type="button" class="input-btn danger" data-clear-key="deepseek">清除</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="gemini-key"><span>Gemini API Key</span><span class="field-note" id="gemini-key-hint">未配置</span></label>
+              <div class="input-group">
+                <input id="gemini-key" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false">
+                <button type="button" class="input-btn" data-toggle-key="gemini-key">显示</button>
+                <button type="button" class="input-btn danger" data-clear-key="gemini">清除</button>
+              </div>
+            </div>
+            <div class="field-row">
+              <label class="field"><span>DeepSeek 模型名</span><input id="deepseek-model" type="text" placeholder="deepseek-chat"></label>
+              <label class="field"><span>Gemini 模型名</span><input id="gemini-model" type="text" placeholder="gemini-2.5-flash"></label>
+            </div>
+          </div>
+
+          <div class="settings-card thinking-card">
+            <label class="thinking-toggle" for="toggle-thinking">
+              <span class="thinking-copy">
+                <strong>模型思考</strong>
+                <small>开启后模型先推理再输出最终答案；关闭更快、更省 Token。思考过程不会混入解析正文。</small>
+              </span>
+              <span class="thinking-switch">
+                <input id="toggle-thinking" type="checkbox">
+                <i class="switch"></i>
+              </span>
+            </label>
+            <div class="thinking-effort-field" id="thinking-effort-field">
+              <span class="field-label">思考强度</span>
+              <div class="segmented wide" id="thinking-effort" role="group" aria-label="思考强度">
+                <button type="button" data-thinking-effort="low">低</button>
+                <button type="button" data-thinking-effort="medium">中</button>
+                <button type="button" data-thinking-effort="high">高</button>
+                <button type="button" data-thinking-effort="max">最高</button>
+              </div>
+              <p class="hint" id="thinking-hint">中等：日常划词与导读的平衡点；思考越深越慢，但分析更充分。</p>
+            </div>
+          </div>
+
+          <div class="test-connection" id="test-connection">
+            <button class="btn" type="button" id="settings-test">保存并测试连接</button>
+            <span class="test-result" id="test-result"></span>
+          </div>
+        </section>
+
+        <section class="settings-panel" data-settings-panel="prompt">
+          <div class="settings-section-head">
+            <h3>自定义划词 Prompt</h3>
+            <p>这段文字会在每次划词时发给模型。使用 <code>{selected_text}</code> 与 <code>{context_sentence}</code> 两个占位符，分别代表选中词句与上下文。</p>
+          </div>
+          <div class="settings-card">
+            <textarea id="selection-prompt" class="prompt-editor" rows="14" spellcheck="false"></textarea>
+            <div class="prompt-toolbar">
+              <div class="prompt-chips">
+                <span>插入：</span>
+                <button type="button" class="chip" data-insert-placeholder="{selected_text}">{selected_text}</button>
+                <button type="button" class="chip" data-insert-placeholder="{context_sentence}">{context_sentence}</button>
+              </div>
+              <button type="button" class="link-btn" id="reset-prompt">恢复默认</button>
+            </div>
+            <p class="hint" id="prompt-hint">建议明确输出结构、语言与长度，例如“用简体中文分点解释”。</p>
+          </div>
+        </section>
+
+        <section class="settings-panel" data-settings-panel="reading">
+          <div class="settings-section-head">
+            <h3>阅读体验</h3>
+            <p>这些偏好会保存在本机，下次打开自动恢复。</p>
+          </div>
+          <div class="settings-card">
+            <div class="field">
+              <span class="field-label">主题</span>
+              <div class="theme-options" id="settings-theme-options">
+                <button type="button" class="theme-option" data-theme-choice="light"><span class="theme-swatch light"></span><span>羊皮纸</span></button>
+                <button type="button" class="theme-option" data-theme-choice="dark"><span class="theme-swatch dark"></span><span>夜间墨色</span></button>
+              </div>
+            </div>
+            <div class="field-row">
+              <label class="field"><span>阅读字号：<b id="settings-font-label">21 px</b></span><input id="settings-font-size" type="range" min="16" max="32" step="1"></label>
+              <label class="field"><span>阅读栏宽</span>
+                <select id="settings-line-width">
+                  <option value="narrow">窄 · 640px</option>
+                  <option value="comfortable">舒适 · 780px</option>
+                  <option value="wide">宽 · 920px</option>
+                </select>
+              </label>
+            </div>
+            <div class="field">
+              <span class="field-label">默认阅读模式</span>
+              <div class="segmented wide" id="settings-mode">
+                <button type="button" data-mode-choice="scroll">滑动</button>
+                <button type="button" data-mode-choice="paginated">翻页</button>
+              </div>
+            </div>
+            <div class="toggle-list">
+              <label class="toggle-row"><span><strong>划词后自动解析</strong><small>选中即调用 AI；关闭后需点按工具条</small></span><input type="checkbox" id="toggle-auto-annotate"><i class="switch"></i></label>
+              <label class="toggle-row"><span><strong>自动生成章节导读</strong><small>打开一章时预热下一章；关闭可节省 Token</small></span><input type="checkbox" id="toggle-auto-guide"><i class="switch"></i></label>
+              <label class="toggle-row"><span><strong>根据正文自动识别书名/作者</strong><small>仅当文件元数据缺失时调用一次模型</small></span><input type="checkbox" id="toggle-auto-metadata"><i class="switch"></i></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-panel" data-settings-panel="about">
+          <div class="settings-section-head">
+            <h3>连接与数据</h3>
+            <p>手机与电脑在同一 Wi-Fi 下即可访问；所有数据只在本机。</p>
+          </div>
+          <div class="about-grid">
+            <div class="settings-card lan-card">
+              <span class="eyebrow">LAN ACCESS</span>
+              <div class="qr-wrap"><img id="lan-qr" alt="局域网访问二维码" width="148" height="148"></div>
+              <p class="lan-url" id="lan-url">—</p>
+              <button class="btn small" type="button" id="copy-lan-url"><svg class="icon" aria-hidden="true"><use href="#i-copy"></use></svg>复制地址</button>
+              <p class="hint">Android 手机扫码打开后，可添加到主屏幕，像 App 一样使用。</p>
+            </div>
+            <div class="settings-card data-card">
+              <span class="eyebrow">LOCAL DATA</span>
+              <dl class="data-list">
+                <div><dt>书籍</dt><dd id="data-books">—</dd></div>
+                <div><dt>总词数</dt><dd id="data-words">—</dd></div>
+                <div><dt>划词笔记</dt><dd id="data-notes">—</dd></div>
+                <div><dt>追问</dt><dd id="data-chats">—</dd></div>
+              </dl>
+              <p class="data-path" id="data-path">—</p>
+              <p class="hint">数据库与原始文件均在项目目录；删除书籍会同时清理标注与原文件。</p>
+            </div>
+          </div>
+          <div class="settings-card about-meta">
+            <div><span>版本</span><strong id="about-version">v1.2.2</strong></div>
+            <div><span>前端</span><strong>原生 HTML · CSS · JavaScript</strong></div>
+            <div><span>解析引擎</span><strong id="about-engine">PyMuPDF · EbookLib</strong></div>
+            <div><span>API 文档</span><a href="/api/docs" target="_blank" rel="noopener">打开 /api/docs <svg class="icon" aria-hidden="true"><use href="#i-external"></use></svg></a></div>
+          </div>
+        </section>
+      </div>
+      <footer class="modal-foot">
+        <span class="hint" id="settings-status"></span>
+        <div class="modal-foot-actions">
+          <button class="btn ghost" type="button" data-close-modal>取消</button>
+          <button class="btn primary" type="button" id="settings-save">保存设置</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- 确认弹窗                                                      -->
+  <!-- ============================================================ -->
+  <div class="modal" id="modal-confirm" hidden>
+    <div class="modal-backdrop" data-confirm-cancel></div>
+    <div class="modal-panel modal-panel-sm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+      <header class="modal-head">
+        <div><h2 id="confirm-title">确认操作</h2></div>
+        <button class="icon-btn" type="button" data-confirm-cancel aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
+      </header>
+      <div class="modal-body"><p id="confirm-message"></p></div>
+      <footer class="modal-foot">
+        <div class="modal-foot-actions">
+          <button class="btn ghost" type="button" data-confirm-cancel>取消</button>
+          <button class="btn danger" type="button" id="confirm-ok">确认</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+  <div id="screen-error" class="screen-error" hidden>
+    <div class="screen-error-card">
+      <svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg>
+      <h2>无法连接本地服务</h2>
+      <p id="screen-error-message">请确认终端中的服务仍在运行。</p>
+      <button class="btn primary" type="button" id="screen-error-retry">重试</button>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=1.2.2"></script>
+</body>
+</html>
