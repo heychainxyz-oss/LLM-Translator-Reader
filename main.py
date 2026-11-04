@@ -38,7 +38,7 @@ import parser
 import prompts
 
 APP_NAME = "德语智读 · German AI Reader"
-APP_VERSION = "1.2.2"
+APP_VERSION = "1.4.1"
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 HOST = os.environ.get("READER_HOST", "0.0.0.0")
@@ -291,6 +291,12 @@ def _generate_guide_core(chapter_id: int, *, force: bool = False) -> dict[str, A
     text = "\n\n".join(chapter["paragraphs"])
     if not text.strip():
         raise HTTPException(status_code=400, detail="本章没有正文，无法生成导读。")
+    if not ai_service.provider_ready():
+        raise ai_service.AIServiceError(
+            "未配置可用模型，请配置可用模型之后重试。",
+            status_code=400,
+            code="missing_model",
+        )
     guide = ai_service.generate_chapter_guide(book["title"], chapter["title"], text)
     db.update_chapter_guide(chapter_id, guide["summary"], guide["questions"])
     return {
@@ -324,6 +330,8 @@ def _post_import(book_id: int) -> None:
     auto_guide = (db.get_setting("auto_guide", "1") or "1") == "1"
 
     def guides() -> None:
+        if not ai_service.provider_ready():
+            return
         try:
             chapters = db.list_chapters(book_id)[:2]
         except Exception:
@@ -411,12 +419,16 @@ class BookUpdateRequest(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    active_model: Literal["deepseek", "gemini"] | None = None
+    active_model: Literal["deepseek", "gemini", "openai"] | None = None
     deepseek_key: str | None = Field(default=None, max_length=300)
     gemini_key: str | None = Field(default=None, max_length=300)
+    openai_key: str | None = Field(default=None, max_length=300)
     deepseek_model: str | None = Field(default=None, max_length=80)
     gemini_model: str | None = Field(default=None, max_length=80)
+    openai_model: str | None = Field(default=None, max_length=120)
+    openai_base_url: str | None = Field(default=None, max_length=300)
     selection_prompt: str | None = Field(default=None, max_length=20000)
+    prompts: dict[str, str] | None = None
     reset_prompt: bool = False
     auto_annotate: bool | None = None
     auto_metadata: bool | None = None
@@ -430,7 +442,7 @@ class SettingsUpdate(BaseModel):
 
 
 class TestConnectionRequest(BaseModel):
-    provider: Literal["deepseek", "gemini"] | None = None
+    provider: Literal["deepseek", "gemini", "openai"] | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -509,16 +521,34 @@ def _public_settings() -> dict[str, Any]:
         "DEEPSEEK_API_KEY", ""
     )
     gemini_key = (raw.get("gemini_key") or "").strip() or os.environ.get("GEMINI_API_KEY", "")
+    openai_key = (raw.get("openai_key") or "").strip() or os.environ.get("OPENAI_API_KEY", "")
+    prompt_values = {
+        name: (raw.get(name) or default) for name, default in prompts.PROMPT_DEFAULTS.items()
+    }
     return {
         "active_model": status["active_model"],
-        "deepseek_model": raw.get("deepseek_model", "deepseek-chat"),
-        "gemini_model": raw.get("gemini_model", "gemini-2.5-flash"),
+        "deepseek_model": raw.get("deepseek_model", "deepseek-flash"),
+        "gemini_model": raw.get("gemini_model", "gemini-3.8-flash"),
+        "openai_model": raw.get("openai_model", ""),
+        "openai_base_url": raw.get("openai_base_url", "https://api.openai.com/v1"),
         "has_deepseek_key": status["has_deepseek_key"],
         "has_gemini_key": status["has_gemini_key"],
+        "has_openai_key": status["has_openai_key"],
         "deepseek_key_hint": _mask_key(deepseek_key),
         "gemini_key_hint": _mask_key(gemini_key),
-        "selection_prompt": raw.get("selection_prompt") or prompts.DEFAULT_SELECTION_PROMPT,
+        "openai_key_hint": _mask_key(openai_key),
+        "selection_prompt": prompt_values["selection_prompt"],
         "default_selection_prompt": prompts.DEFAULT_SELECTION_PROMPT,
+        "prompts": prompt_values,
+        "default_prompts": prompts.PROMPT_DEFAULTS,
+        "prompt_meta": [
+            {
+                "key": name,
+                "label": spec["label"],
+                "placeholders": spec["placeholders"],
+            }
+            for name, spec in prompts.PROMPT_DEFINITIONS.items()
+        ],
         "auto_annotate": raw.get("auto_annotate", "1") == "1",
         "auto_metadata": raw.get("auto_metadata", "1") == "1",
         "auto_guide": raw.get("auto_guide", "1") == "1",
@@ -647,10 +677,19 @@ def get_settings() -> dict[str, Any]:
 def update_settings(payload: SettingsUpdate) -> dict[str, Any]:
     updates: dict[str, str] = {}
     data = payload.model_dump(exclude_unset=True)
-    for key in ("active_model", "deepseek_model", "gemini_model", "theme", "reading_mode", "line_width"):
+    for key in (
+        "active_model",
+        "deepseek_model",
+        "gemini_model",
+        "openai_model",
+        "openai_base_url",
+        "theme",
+        "reading_mode",
+        "line_width",
+    ):
         value = data.get(key)
         if value is not None:
-            updates[key] = str(value)
+            updates[key] = str(value).strip()
     for key in ("auto_annotate", "auto_metadata", "auto_guide", "thinking_enabled"):
         value = data.get(key)
         if value is not None:
@@ -659,14 +698,29 @@ def update_settings(payload: SettingsUpdate) -> dict[str, Any]:
         updates["thinking_effort"] = data["thinking_effort"]
     if data.get("font_size") is not None:
         updates["font_size"] = str(int(data["font_size"]))
-    if data.get("selection_prompt") is not None:
+    prompt_updates = data.get("prompts")
+    if prompt_updates is not None:
+        unknown = set(prompt_updates) - set(prompts.PROMPT_DEFAULTS)
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"未知的 Prompt 名称：{', '.join(sorted(unknown))}",
+            )
+        for name, value in prompt_updates.items():
+            text = str(value or "").strip()
+            if len(text) > 20000:
+                raise HTTPException(status_code=400, detail=f"Prompt「{name}」过长。")
+            if name == "selection_prompt" and text and len(text) < 20:
+                raise HTTPException(status_code=400, detail="划词 Prompt 太短，请至少写 20 个字符。")
+            updates[name] = text
+    elif data.get("selection_prompt") is not None:
         prompt = data["selection_prompt"].strip()
         if len(prompt) < 20:
             raise HTTPException(status_code=400, detail="自定义 Prompt 太短，请至少写 20 个字符。")
         updates["selection_prompt"] = prompt
     if data.get("reset_prompt"):
         updates["selection_prompt"] = prompts.DEFAULT_SELECTION_PROMPT
-    for key in ("deepseek_key", "gemini_key"):
+    for key in ("deepseek_key", "gemini_key", "openai_key"):
         value = data.get(key)
         if value is None:
             continue
@@ -945,7 +999,7 @@ def get_chapter(
         db.set_progress(book_id, chapter_index)
 
     auto_guide = (db.get_setting("auto_guide", "1") or "1") == "1"
-    if auto_guide:
+    if auto_guide and ai_service.provider_ready():
         if not chapter["is_guide_ready"] and not jobs.is_running(_job_key_guide(chapter["id"])):
             background_tasks.add_task(_run_guide, chapter["id"])
             chapter["guide_job"] = {
@@ -1009,6 +1063,12 @@ def prepare_guide(chapter_id: int, background_tasks: BackgroundTasks) -> dict[st
         raise HTTPException(status_code=404, detail="章节不存在。")
     if chapter["is_guide_ready"]:
         return {"status": "ready", "chapter_id": chapter_id}
+    if not ai_service.provider_ready():
+        return {
+            "status": "unavailable",
+            "chapter_id": chapter_id,
+            "error": "未配置可用模型，请配置可用模型之后重试。",
+        }
     key = _job_key_guide(chapter_id)
     if jobs.is_running(key):
         return {"status": "generating", "chapter_id": chapter_id, "job": jobs.get(key)}

@@ -3,7 +3,7 @@
 > 依据 `design.md` 拆解。状态标记：`[ ]` 待办 · `[~]` 进行中 · `[x]` 完成。
 > 验收标准均为**可执行、可观察**的检查，最终在 `tests/` 与人工清单中逐条验证。
 >
-> **状态：8 个阶段全部完成（2026-11-02）。** 自动化 99 项全绿；真实 DeepSeek 流式解析/追问冒烟通过；桌面/1920/手机 390 视口 Playwright 巡检无 console error。v1.1.0、v1.2.0 追加需求、v1.2.1 界面修复与 v1.2.2 缓存清理均已完成，见文末。具体验收记录见文末「验收记录」。
+> **状态：8 个阶段全部完成（2026-11-02）。** 自动化 111 项全绿；真实 DeepSeek 流式解析/追问冒烟通过；桌面/1920/手机 390 视口 Playwright 巡检无 console error。v1.1.0、v1.2.0 追加需求、v1.2.1 界面修复、v1.2.2 缓存清理、v1.3.0 模型预设、v1.4.0 OpenAI/全 Prompt 与 v1.4.1 追问/思考/导读修复均已完成，见文末。具体验收记录见文末「验收记录」。
 
 ## 项目结构（设计稿对照）
 
@@ -174,7 +174,7 @@ german_reader_ai/  →  当前目录 AIReader/
 
 ```
 $ .venv\Scripts\python -m pytest -q
-99 passed in 10.16s
+111 passed in 15.00s
 ```
 
 覆盖：断词四种形态、TXT 三种编码、PDF 书签/正则分章/扫描件、EPUB、3000 词分节、五表 CRUD 与级联、并发写入、导入 API、标注缓存/强制重生成/追问、设置脱敏、搜索、二维码、错误映射、DeepSeek/Gemini 请求形状。
@@ -305,4 +305,42 @@ $ .venv\Scripts\python -m pytest -q
 - [x] 前端普通 API 请求增加 `cache: "no-store"`，并将静态资源版本升至 v1.2.2。
 
 **验收**：数据库统计为 `books=1, chapters=5, annotations=0, chat_messages=0`；`has_deepseek_key=false`、`has_gemini_key=false`；Key 文件不存在；当前 Prompt 与默认 Prompt 完全相等；`node --check` 与 **99 passed** 通过；服务重启后缓存没有自动回填。
+
+---
+
+## v1.3.0 模型预设更新（2026-11-04）
+
+- [x] 按 2026 官方文档更新 DeepSeek 预设：`deepseek-flash`（默认，1M，支持图像）、`deepseek-v4-pro`（旗舰推理，不支持图像）。
+- [x] 更新 Gemini 预设：`gemini-3.8-flash`（默认）、`gemini-4-argon`、`gemini-3.5-flash-lite`。
+- [x] 设置页把自由文本模型名改为「官方预设下拉 + 自定义兼容模型」；自定义模型才显示输入框，并显示上下文/图像/思考限制提示。
+- [x] 默认值与 API 缺省值同步更新；旧 `deepseek-chat`、`deepseek-reasoner`、`gemini-2.5-flash` 等在启动时迁移到新预设，自定义网关名保持不变。
+- [x] Gemini 3.8/4 继续使用 `thinkingLevel`（关闭思考时最低到 low）；DeepSeek 继续使用 `thinking` + `reasoning_effort`。
+
+**验收**：设置页默认显示 `deepseek-flash` 与 `gemini-3.8-flash`；切换到 `deepseek-v4-pro`、自定义 `my-gateway-model` 后保存并重开仍保持；恢复官方预设后截图无 console error；旧模型迁移测试和当前默认值测试通过；pytest **101 passed**。
+
+---
+
+## v1.4.0 OpenAI 兼容与全 Prompt 自定义（2026-11-04）
+
+- [x] 新增第三种供应商 **OpenAI 兼容**：可配置 API Key（可留空）、Base URL、模型名；按标准 `POST /chat/completions` 调用，支持非流式与 SSE 流式。
+- [x] OpenAI 兼容实现发送可选顶层 `reasoning_effort`（v1.4.1 起与统一思考面板联动）；遇到 `max_tokens`、`response_format` 等可选参数不兼容时自动降级重试。
+- [x] 设置页改为供应商分区：选择 DeepSeek 只显示 DeepSeek Key/模型，选择 Gemini 只显示 Gemini，选择 OpenAI 只显示 OpenAI Key/Base URL/模型；思考面板在三家供应商下共用。
+- [x] 删除「连接与数据」最底部的版本/前端/解析引擎/API 文档方框。
+- [x] 新增 9 个可编辑 Prompt：划词、章节系统、章节用户、全书背景系统、全书背景用户、追问系统、追问上下文、书名识别系统、书名识别用户；支持占位符与逐项恢复默认。
+- [x] Prompt 覆盖存于 settings，空值回退 `prompts.PROMPT_DEFAULTS`；章节问题数放宽到 1–3，允许用户 Prompt 只要求 1 个问题。
+
+**验收**：供应商切换只显示对应配置（Playwright 检查 DeepSeek/Gemini/OpenAI 三个视图）；OpenAI 设置通过 UI 保存/恢复；Prompt 下拉 9 项、章节用户 Prompt 可编辑并保存、恢复默认后与代码默认完全一致；打开设置不显示旧 about 方框；pytest **109 passed**，无 console error。
+
+---
+
+## v1.4.1 追问、OpenAI 思考与导读修复（2026-11-04）
+
+- [x] 追问上下文不再以重复的 user 消息 + 假 assistant 确认插入；合并进一条 system 背景，后续只追加真实 `user/assistant` 历史，和普通 chatbot 一致。
+- [x] OpenAI 兼容服务支持统一「模型思考」开关和强度：按顶层 `reasoning_effort` 发送；关闭为 `none`，低/中/高/最高映射 low/medium/high/high；网关拒绝该参数时自动省略并缓存，不阻断回答；流式与非流式都支持。
+- [x] OpenAI 兼容模式下恢复显示思考面板；设置页仍只显示所选供应商的 Key/Base URL/模型。
+- [x] 未配置可用模型时，章节导读不再自动排队失败任务：后端跳过自动生成，前端直接显示「未配置可用模型，请配置可用模型之后重试。」并提供重新生成按钮与打开设置入口。
+- [x] 保存设置后若当前章节尚无导读，会立即重绘导读卡片；配置完成后可直接点「重新生成」。
+- [x] 章节问题数继续允许 1–3 个；导读错误接口统一返回明确中文提示。
+
+**验收**：OpenAI 非流式/流式 payload 均带正确 `reasoning_effort`，关闭时发送 `none`，参数不支持时降级；追问 messages 只有一条 system 背景、无假确认、历史按轮追加；无 Key 打开章节时导读卡显示指定文案且无自动任务，按钮打开设置；pytest **111 passed**，Playwright 无 console error。
 

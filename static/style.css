@@ -1970,7 +1970,7 @@ mark.hl.active { box-shadow: 0 0 0 2px var(--accent); }
 .thinking-effort-field .segmented button { height: 31px; font-size: 11.5px; }
 .thinking-effort-field .hint { margin-top: 1px; }
 
-.provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.provider-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
 .provider-card {
   position: relative;
   display: flex;
@@ -2005,6 +2005,11 @@ mark.hl.active { box-shadow: 0 0 0 2px var(--accent); }
 }
 .provider-mark.deepseek { background: linear-gradient(145deg, #4d6bfe, #2c46c9); }
 .provider-mark.gemini { background: linear-gradient(145deg, #6c7cf5, #a44bd6); }
+.provider-mark.openai { background: linear-gradient(145deg, #2f9d7a, #176b55); }
+.provider-card { padding: 12px; gap: 9px; }
+.provider-copy strong { font-size: 12.5px; }
+.provider-copy small { font-size: 9.5px; }
+.provider-mark { width: 34px; height: 34px; }
 .provider-copy { min-width: 0; flex: 1; }
 .provider-copy strong { display: block; font-size: 13.5px; }
 .provider-copy small { display: block; margin-top: 3px; color: var(--muted); font-size: 10.5px; line-height: 1.45; }

@@ -10,6 +10,18 @@
   const MAX_SELECTION = 500;
   const CONTENT_WIDTHS = { narrow: 640, comfortable: 780, wide: 920 };
   const THINKING_EFFORT_LABELS = { low: "低", medium: "中", high: "高", max: "最高" };
+  const DEFAULT_MODELS = { deepseek: "deepseek-flash", gemini: "gemini-3.8-flash" };
+  const MODEL_PRESETS = {
+    deepseek: ["deepseek-flash", "deepseek-v4-pro"],
+    gemini: ["gemini-3.8-flash", "gemini-4-argon", "gemini-3.5-flash-lite"],
+  };
+  const MODEL_NOTES = {
+    "deepseek-flash": "1M 上下文 · 支持图像输入 · 思考默认开启",
+    "deepseek-v4-pro": "旗舰推理 · 1M 上下文 · 不支持图像输入",
+    "gemini-3.8-flash": "推荐 · 1M 上下文 · 低延迟",
+    "gemini-4-argon": "旗舰 · 1M 上下文 · 不支持完全关闭思考",
+    "gemini-3.5-flash-lite": "轻量 · 低延迟 · 成本优先",
+  };
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -63,6 +75,10 @@
     settingsSaving: false,
     clearKeys: new Set(),
     settingsDirty: false,
+    promptValues: {},
+    promptDefaults: {},
+    promptMeta: [],
+    activePromptKey: "selection_prompt",
 
     importing: false,
     importFile: null,
@@ -685,7 +701,7 @@
     $("#library-stats").textContent = books.length
       ? `${books.length} 本书 · ${formatWords(state.stats.words)} · ${formatNumber(state.stats.annotations)} 条划词笔记`
       : "还没有书，先导入一本吧";
-    $("#library-footer-version").textContent = state.health ? `v${state.health.version || "1.2.2"}` : "v1.2.2";
+    $("#library-footer-version").textContent = state.health ? `v${state.health.version || "1.4.1"}` : "v1.4.1";
 
     const grid = $("#book-grid");
     grid.innerHTML = books.map(bookCardHtml).join("");
@@ -1096,8 +1112,18 @@
     const running = job && job.status === "running";
     const error = job && job.status === "error" ? job.error : null;
     const collapsed = ready && state.guideCollapsed;
+    const noModel = !ready && !hasActiveKey();
     let body = "";
-    if (ready) {
+    if (noModel) {
+      body = `
+        <div class="guide-body">
+          <p class="guide-error">未配置可用模型，请配置可用模型之后重试。</p>
+          <div class="guide-status">
+            <button class="btn small" type="button" data-guide-regen>${icon("refresh")}重新生成</button>
+            <button class="link-btn" type="button" data-open-settings>打开设置</button>
+          </div>
+        </div>`;
+    } else if (ready) {
       const questions = chapter.questions || chapter.guiding_questions || [];
       body = `
         <div class="guide-body">
@@ -1156,6 +1182,11 @@
 
   async function generateGuide(force = true) {
     if (!state.chapter || state.guideBusy) return;
+    if (!hasActiveKey()) {
+      toast("未配置可用模型，请配置可用模型之后重试", "info", 4200);
+      openSettings();
+      return;
+    }
     state.guideBusy = true;
     const card = $("#guide-card");
     if (card) {
@@ -1571,14 +1602,40 @@
   /* ====================================================================== */
   function hasActiveKey() {
     if (!state.settings) return false;
-    return state.settings.active_model === "gemini"
-      ? Boolean(state.settings.has_gemini_key)
-      : Boolean(state.settings.has_deepseek_key);
+    if (state.settings.active_model === "gemini") return Boolean(state.settings.has_gemini_key);
+    if (state.settings.active_model === "openai") {
+      return Boolean(state.settings.openai_model && state.settings.openai_base_url);
+    }
+    return Boolean(state.settings.has_deepseek_key);
+  }
+
+  function activeProvider() {
+    const selected = document.querySelector('input[name="active-model"]:checked');
+    return selected ? selected.value : (state.settings && state.settings.active_model) || "deepseek";
+  }
+
+  function updateProviderSettings() {
+    const provider = activeProvider();
+    $$("[data-provider-settings]").forEach((card) => {
+      card.hidden = card.dataset.providerSettings !== provider;
+    });
   }
 
   function updateAiBadge() {
     const warning = $("#ai-key-warning");
-    if (warning) warning.hidden = !state.settings || hasActiveKey() || state.view !== "reader";
+    if (!warning) return;
+    const settings = state.settings || {};
+    const openaiMissingModel =
+      settings.active_model === "openai" && !String(settings.openai_model || "").trim();
+    const title = $("#ai-warning-title");
+    const text = $("#ai-warning-text");
+    if (title) title.textContent = openaiMissingModel ? "还没有填写模型名" : "还没有配置 API Key";
+    if (text) {
+      text.textContent = openaiMissingModel
+        ? "请在设置中选择 OpenAI 兼容服务，填写 Base URL 与模型名。"
+        : "划词解析与章节导读需要模型服务。Key 只保存在本机。";
+    }
+    warning.hidden = !state.settings || hasActiveKey() || state.view !== "reader";
   }
 
   function resetAiPanel() {
@@ -2724,6 +2781,111 @@
     loadSystemInfoForSettings();
   }
 
+  function syncModelControl(provider, value) {
+    const preset = $(`#${provider}-model-preset`);
+    const input = $(`#${provider}-model`);
+    if (!preset || !input) return;
+    const known = MODEL_PRESETS[provider].includes(value);
+    preset.value = known ? value : "__custom__";
+    input.hidden = known;
+    input.value = known ? "" : (value || "");
+    updateModelNote(provider);
+  }
+
+  function updateModelNote(provider) {
+    const preset = $(`#${provider}-model-preset`);
+    const input = $(`#${provider}-model`);
+    const note = $(`#${provider}-model-note`);
+    if (!preset || !note) return;
+    if (preset.value === "__custom__") {
+      note.textContent = input && input.value.trim()
+        ? "自定义兼容模型 · 请确认网关支持该模型名"
+        : "填写兼容网关或旧模型的完整名称";
+      return;
+    }
+    note.textContent = MODEL_NOTES[preset.value] || "使用官方模型名";
+  }
+
+  function selectedModel(provider) {
+    const preset = $(`#${provider}-model-preset`);
+    const input = $(`#${provider}-model`);
+    if (preset && preset.value !== "__custom__") return preset.value;
+    const custom = input ? input.value.trim() : "";
+    return custom || DEFAULT_MODELS[provider];
+  }
+
+  function initPromptEditor(settings) {
+    state.promptValues = { ...(settings.prompts || {}) };
+    state.promptDefaults = { ...(settings.default_prompts || {}) };
+    if (!state.promptValues.selection_prompt) {
+      state.promptValues.selection_prompt = settings.selection_prompt || "";
+    }
+    if (!state.promptDefaults.selection_prompt) {
+      state.promptDefaults.selection_prompt = settings.default_selection_prompt || "";
+    }
+    state.promptMeta = Array.isArray(settings.prompt_meta) && settings.prompt_meta.length
+      ? settings.prompt_meta
+      : [{ key: "selection_prompt", label: "划词解析", placeholders: ["selected_text", "context_sentence"] }];
+    const select = $("#prompt-kind");
+    select.innerHTML = state.promptMeta
+      .map((meta) => `<option value="${escapeHtml(meta.key)}">${escapeHtml(meta.label)}</option>`)
+      .join("");
+    const keys = state.promptMeta.map((meta) => meta.key);
+    state.activePromptKey = keys.includes(state.activePromptKey)
+      ? state.activePromptKey
+      : keys[0] || "selection_prompt";
+    select.value = state.activePromptKey;
+    loadPromptEditor();
+  }
+
+  function currentPromptMeta() {
+    return state.promptMeta.find((meta) => meta.key === state.activePromptKey) || null;
+  }
+
+  function storePromptEditor() {
+    if (!state.activePromptKey) return;
+    state.promptValues[state.activePromptKey] = $("#prompt-editor").value;
+  }
+
+  function renderPromptChips() {
+    const meta = currentPromptMeta();
+    const chips = $("#prompt-chips");
+    const placeholders = (meta && meta.placeholders) || [];
+    if (!placeholders.length) {
+      chips.innerHTML = `<span class="field-note">此 Prompt 不使用占位符</span>`;
+      return;
+    }
+    chips.innerHTML =
+      `<span>插入：</span>` +
+      placeholders
+        .map(
+          (name) =>
+            `<button type="button" class="chip" data-insert-placeholder="{${escapeHtml(name)}}">{${escapeHtml(name)}}</button>`
+        )
+        .join("");
+  }
+
+  function loadPromptEditor() {
+    const meta = currentPromptMeta();
+    const key = state.activePromptKey;
+    $("#prompt-editor").value =
+      state.promptValues[key] || state.promptDefaults[key] || "";
+    renderPromptChips();
+    $("#prompt-hint").textContent = meta
+      ? `${meta.label}。${meta.placeholders && meta.placeholders.length ? "可插入占位符；保存后会用于对应生成流程。" : "此 Prompt 不使用占位符。"}`
+      : "选择上方 Prompt 后编辑。";
+  }
+
+  function resetPromptEditor() {
+    if (!state.activePromptKey) return;
+    const value = state.promptDefaults[state.activePromptKey] || "";
+    $("#prompt-editor").value = value;
+    state.promptValues[state.activePromptKey] = value;
+    markSettingsDirty();
+    $("#prompt-hint").classList.add("flash");
+    setTimeout(() => $("#prompt-hint") && $("#prompt-hint").classList.remove("flash"), 500);
+  }
+
   function populateSettings() {
     const settings = state.settings;
     if (!settings) return;
@@ -2737,10 +2899,14 @@
 
     const hasDeepseek = Boolean(settings.has_deepseek_key);
     const hasGemini = Boolean(settings.has_gemini_key);
+    const hasOpenai = Boolean(settings.has_openai_key);
+    const openaiReady = Boolean(settings.openai_model && settings.openai_base_url);
     $("#deepseek-key").value = "";
     $("#gemini-key").value = "";
+    $("#openai-key").value = "";
     $("#deepseek-key").type = "password";
     $("#gemini-key").type = "password";
+    $("#openai-key").type = "password";
     $$("[data-toggle-key]").forEach((button) => (button.textContent = "显示"));
     $("#deepseek-key").placeholder = hasDeepseek
       ? `已保存：${settings.deepseek_key_hint}（留空保持）`
@@ -2748,21 +2914,30 @@
     $("#gemini-key").placeholder = hasGemini
       ? `已保存：${settings.gemini_key_hint}（留空保持）`
       : "AIza…";
+    $("#openai-key").placeholder = hasOpenai
+      ? `已保存：${settings.openai_key_hint}（留空保持）`
+      : "本地网关可留空";
     $("#deepseek-key-hint").textContent = hasDeepseek ? `已保存 ${settings.deepseek_key_hint}` : "未配置";
     $("#gemini-key-hint").textContent = hasGemini ? `已保存 ${settings.gemini_key_hint}` : "未配置";
+    $("#openai-key-hint").textContent = hasOpenai ? `已保存 ${settings.openai_key_hint}` : "可选";
     $("#settings-deepseek-dot").className = `status-dot ${hasDeepseek ? "ok" : "warn"}`;
     $("#settings-gemini-dot").className = `status-dot ${hasGemini ? "ok" : "warn"}`;
+    $("#settings-openai-dot").className = `status-dot ${openaiReady ? "ok" : "warn"}`;
     $$('[data-clear-key="deepseek"]').forEach((button) => (button.hidden = !hasDeepseek));
     $$('[data-clear-key="gemini"]').forEach((button) => (button.hidden = !hasGemini));
-    $("#deepseek-model").value = settings.deepseek_model || "deepseek-chat";
-    $("#gemini-model").value = settings.gemini_model || "gemini-2.5-flash";
+    $$('[data-clear-key="openai"]').forEach((button) => (button.hidden = !hasOpenai));
+    syncModelControl("deepseek", settings.deepseek_model || DEFAULT_MODELS.deepseek);
+    syncModelControl("gemini", settings.gemini_model || DEFAULT_MODELS.gemini);
+    $("#openai-base-url").value = settings.openai_base_url || "https://api.openai.com/v1";
+    $("#openai-model").value = settings.openai_model || "";
+    updateProviderSettings();
     $("#toggle-thinking").checked = settings.thinking_enabled !== false;
     const effort = settings.thinking_effort || "medium";
     $$("#thinking-effort [data-thinking-effort]").forEach((button) => {
       button.classList.toggle("active", button.dataset.thinkingEffort === effort);
     });
     updateThinkingControls();
-    $("#selection-prompt").value = settings.selection_prompt || settings.default_selection_prompt || "";
+    initPromptEditor(settings);
     $("#settings-font-size").value = String(state.fontSize);
     $("#settings-font-label").textContent = `${state.fontSize} px`;
     $("#settings-line-width").value = state.lineWidth;
@@ -2796,6 +2971,7 @@
       const input = card.querySelector('input[name="active-model"]');
       card.classList.toggle("selected", Boolean(input && input.checked));
     });
+    updateProviderSettings();
   }
 
   function updateThinkingControls() {
@@ -2821,16 +2997,29 @@
   function buildSettingsPayload() {
     const selectedProvider = document.querySelector('input[name="active-model"]:checked');
     const provider = selectedProvider ? selectedProvider.value : state.settings.active_model;
-    const prompt = $("#selection-prompt").value.trim();
-    if (prompt.length < 20) {
-      toast("自定义 Prompt 至少需要 20 个字符", "error");
-      return null;
+    storePromptEditor();
+    const promptsPayload = {};
+    for (const meta of state.promptMeta) {
+      const value = (state.promptValues[meta.key] || "").trim();
+      const effective = value || state.promptDefaults[meta.key] || "";
+      if (meta.key === "selection_prompt" && effective.length < 20) {
+        toast("划词解析 Prompt 至少需要 20 个字符", "error");
+        return null;
+      }
+      if (effective.length > 20000) {
+        toast(`Prompt「${meta.label}」过长`, "error");
+        return null;
+      }
+      promptsPayload[meta.key] = value && value !== state.promptDefaults[meta.key] ? value : "";
     }
     const payload = {
       active_model: provider,
-      deepseek_model: $("#deepseek-model").value.trim() || "deepseek-chat",
-      gemini_model: $("#gemini-model").value.trim() || "gemini-2.5-flash",
-      selection_prompt: prompt,
+      deepseek_model: selectedModel("deepseek"),
+      gemini_model: selectedModel("gemini"),
+      openai_model: $("#openai-model").value.trim(),
+      openai_base_url: $("#openai-base-url").value.trim() || "https://api.openai.com/v1",
+      selection_prompt: promptsPayload.selection_prompt || "",
+      prompts: promptsPayload,
       auto_annotate: $("#toggle-auto-annotate").checked,
       auto_guide: $("#toggle-auto-guide").checked,
       auto_metadata: $("#toggle-auto-metadata").checked,
@@ -2849,10 +3038,13 @@
     if (modeChoice) payload.reading_mode = modeChoice.dataset.modeChoice;
     const deepseekKey = $("#deepseek-key").value.trim();
     const geminiKey = $("#gemini-key").value.trim();
+    const openaiKey = $("#openai-key").value.trim();
     if (deepseekKey) payload.deepseek_key = deepseekKey;
     else if (state.clearKeys.has("deepseek")) payload.deepseek_key = "";
     if (geminiKey) payload.gemini_key = geminiKey;
     else if (state.clearKeys.has("gemini")) payload.gemini_key = "";
+    if (openaiKey) payload.openai_key = openaiKey;
+    else if (state.clearKeys.has("openai")) payload.openai_key = "";
     return payload;
   }
 
@@ -2869,6 +3061,7 @@
     try {
       const settings = await api("/settings", { method: "PUT", body: payload });
       state.settings = settings;
+      if (settings.prompts) initPromptEditor(settings);
       state.clearKeys.clear();
       state.settingsDirty = false;
       const nextTheme = payload.theme === "dark" ? "dark" : "light";
@@ -2883,6 +3076,9 @@
       }
       applyPreferences();
       updateAiBadge();
+      if (state.view === "reader" && state.chapter && !state.chapter.is_guide_ready) {
+        renderChapterView({ ratio: getReadingRatio() });
+      }
       if (state.view === "reader" && state.chapter) {
         const ratio = getReadingRatio();
         requestAnimationFrame(() => {
@@ -2960,8 +3156,6 @@
       $("#data-notes").textContent = formatNumber(info.stats && info.stats.annotations);
       $("#data-chats").textContent = formatNumber(info.stats && info.stats.chat_messages);
       $("#data-path").textContent = info.database || "";
-      $("#about-version").textContent = `v${info.version || "1.2.2"}`;
-      $("#about-engine").textContent = info.pdf_engine || "PyMuPDF · EbookLib";
     } catch (error) {
       $("#lan-url").textContent = "无法读取网络信息";
       $("#data-path").textContent = error.message;
@@ -3447,23 +3641,28 @@
         markSettingsDirty();
       });
     });
-    $("#reset-prompt").addEventListener("click", () => {
-      $("#selection-prompt").value =
-        state.settings.default_selection_prompt || $("#selection-prompt").value;
+    $("#prompt-kind").addEventListener("change", () => {
+      storePromptEditor();
+      state.activePromptKey = $("#prompt-kind").value;
+      loadPromptEditor();
+    });
+    $("#prompt-editor").addEventListener("input", () => {
+      storePromptEditor();
       markSettingsDirty();
     });
-    $$("[data-insert-placeholder]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const textarea = $("#selection-prompt");
-        const placeholder = button.dataset.insertPlaceholder;
-        const start = textarea.selectionStart || 0;
-        const end = textarea.selectionEnd || 0;
-        textarea.setRangeText(placeholder, start, end, "end");
-        textarea.focus();
-        markSettingsDirty();
-      });
+    $("#prompt-chips").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-insert-placeholder]");
+      if (!button) return;
+      const textarea = $("#prompt-editor");
+      const placeholder = button.dataset.insertPlaceholder;
+      const start = textarea.selectionStart || 0;
+      const end = textarea.selectionEnd || 0;
+      textarea.setRangeText(placeholder, start, end, "end");
+      textarea.focus();
+      storePromptEditor();
+      markSettingsDirty();
     });
-    $("#selection-prompt").addEventListener("input", markSettingsDirty);
+    $("#reset-prompt").addEventListener("click", resetPromptEditor);
     $$("#settings-theme-options [data-theme-choice]").forEach((button) => {
       button.addEventListener("click", () => {
         $$("#settings-theme-options [data-theme-choice]").forEach((item) => {
@@ -3488,14 +3687,33 @@
     ["#toggle-auto-annotate", "#toggle-auto-guide", "#toggle-auto-metadata"].forEach((selector) => {
       $(selector).addEventListener("change", markSettingsDirty);
     });
-    ["#deepseek-key", "#gemini-key", "#deepseek-model", "#gemini-model"].forEach((selector) => {
+    ["#deepseek-key", "#gemini-key", "#openai-key", "#deepseek-model", "#gemini-model", "#openai-model", "#openai-base-url"].forEach((selector) => {
       $(selector).addEventListener("input", markSettingsDirty);
+    });
+    ["deepseek", "gemini"].forEach((provider) => {
+      const preset = $(`#${provider}-model-preset`);
+      const input = $(`#${provider}-model`);
+      preset.addEventListener("change", () => {
+        const custom = preset.value === "__custom__";
+        input.hidden = !custom;
+        if (custom) {
+          input.focus();
+        } else {
+          input.value = "";
+        }
+        updateModelNote(provider);
+        markSettingsDirty();
+      });
+      input.addEventListener("input", () => updateModelNote(provider));
     });
     $("#deepseek-key").addEventListener("input", () => {
       if ($("#deepseek-key").value.trim()) state.clearKeys.delete("deepseek");
     });
     $("#gemini-key").addEventListener("input", () => {
       if ($("#gemini-key").value.trim()) state.clearKeys.delete("gemini");
+    });
+    $("#openai-key").addEventListener("input", () => {
+      if ($("#openai-key").value.trim()) state.clearKeys.delete("openai");
     });
     $("#settings-save").addEventListener("click", () => saveSettings());
     $("#settings-test").addEventListener("click", () => saveSettings({ test: true }));

@@ -8,7 +8,7 @@
   <title>德语智读 · German AI Reader</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="/static/style.css?v=1.2.2">
+  <link rel="stylesheet" href="/static/style.css?v=1.4.1">
 </head>
 <body>
   <!-- ========================= SVG 图标库 ========================= -->
@@ -198,7 +198,7 @@
 
       <footer class="library-footer">
         <span>本地优先 · SQLite 持久化 · DeepSeek / Gemini 双模型</span>
-        <span id="library-footer-version">v1.2.2</span>
+        <span id="library-footer-version">v1.4.1</span>
       </footer>
     </section>
 
@@ -308,7 +308,7 @@
         <aside class="sidebar sidebar-right" id="sidebar-right" aria-label="AI 私教">
           <div id="ai-key-warning" class="ai-key-warning" hidden>
             <svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg>
-            <div><strong>还没有配置 API Key</strong><p>划词解析与章节导读需要模型服务。Key 只保存在本机。</p></div>
+            <div><strong id="ai-warning-title">还没有配置 API Key</strong><p id="ai-warning-text">划词解析与章节导读需要模型服务。Key 只保存在本机。</p></div>
             <button class="link-btn" id="ai-open-settings" type="button">去设置</button>
           </div>
 
@@ -467,7 +467,7 @@
       </header>
       <div class="settings-tabs" role="tablist">
         <button type="button" class="active" data-settings-tab="ai" role="tab">AI 模型</button>
-        <button type="button" data-settings-tab="prompt" role="tab">划词 Prompt</button>
+        <button type="button" data-settings-tab="prompt" role="tab">Prompt</button>
         <button type="button" data-settings-tab="reading" role="tab">阅读体验</button>
         <button type="button" data-settings-tab="about" role="tab">连接与数据</button>
       </div>
@@ -490,9 +490,15 @@
               <span class="provider-copy"><strong>Gemini</strong><small>响应快，适合长文本与多模态</small></span>
               <span class="status-dot" id="settings-gemini-dot"></span>
             </label>
+            <label class="provider-card" data-provider="openai">
+              <input type="radio" name="active-model" value="openai">
+              <span class="provider-mark openai">OA</span>
+              <span class="provider-copy"><strong>OpenAI 兼容</strong><small>/chat/completions · 任意网关</small></span>
+              <span class="status-dot" id="settings-openai-dot"></span>
+            </label>
           </div>
 
-          <div class="settings-card">
+          <div class="settings-card provider-settings" data-provider-settings="deepseek">
             <div class="field">
               <label for="deepseek-key"><span>DeepSeek API Key</span><span class="field-note" id="deepseek-key-hint">未配置</span></label>
               <div class="input-group">
@@ -502,6 +508,19 @@
               </div>
             </div>
             <div class="field">
+              <span>DeepSeek 模型</span>
+              <select id="deepseek-model-preset" aria-label="DeepSeek 模型预设">
+                <option value="deepseek-flash">deepseek-flash · 推荐</option>
+                <option value="deepseek-v4-pro">deepseek-v4-pro · 旗舰推理</option>
+                <option value="__custom__">自定义兼容模型…</option>
+              </select>
+              <input id="deepseek-model" class="custom-model-input" type="text" placeholder="填写完整模型名" hidden>
+              <span class="field-note" id="deepseek-model-note">1M 上下文 · 支持图像输入 · 思考默认开启</span>
+            </div>
+          </div>
+
+          <div class="settings-card provider-settings" data-provider-settings="gemini" hidden>
+            <div class="field">
               <label for="gemini-key"><span>Gemini API Key</span><span class="field-note" id="gemini-key-hint">未配置</span></label>
               <div class="input-group">
                 <input id="gemini-key" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false">
@@ -509,10 +528,42 @@
                 <button type="button" class="input-btn danger" data-clear-key="gemini">清除</button>
               </div>
             </div>
-            <div class="field-row">
-              <label class="field"><span>DeepSeek 模型名</span><input id="deepseek-model" type="text" placeholder="deepseek-chat"></label>
-              <label class="field"><span>Gemini 模型名</span><input id="gemini-model" type="text" placeholder="gemini-2.5-flash"></label>
+            <div class="field">
+              <span>Gemini 模型</span>
+              <select id="gemini-model-preset" aria-label="Gemini 模型预设">
+                <option value="gemini-3.8-flash">gemini-3.8-flash · 推荐</option>
+                <option value="gemini-4-argon">gemini-4-argon · 旗舰</option>
+                <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite · 轻量</option>
+                <option value="__custom__">自定义兼容模型…</option>
+              </select>
+              <input id="gemini-model" class="custom-model-input" type="text" placeholder="填写完整模型名" hidden>
+              <span class="field-note" id="gemini-model-note">推荐 · 1M 上下文 · 低延迟</span>
             </div>
+          </div>
+
+          <div class="settings-card provider-settings" data-provider-settings="openai" hidden>
+            <div class="field">
+              <label for="openai-key"><span>API Key</span><span class="field-note" id="openai-key-hint">未配置</span></label>
+              <div class="input-group">
+                <input id="openai-key" type="password" placeholder="本地网关可留空" autocomplete="off" spellcheck="false">
+                <button type="button" class="input-btn" data-toggle-key="openai-key">显示</button>
+                <button type="button" class="input-btn danger" data-clear-key="openai">清除</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="openai-base-url"><span>Base URL</span><span class="field-note">不含 /chat/completions</span></label>
+              <input id="openai-base-url" type="text" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="field">
+              <label for="openai-model"><span>模型名</span><span class="field-note">必填</span></label>
+              <input id="openai-model" type="text" placeholder="例如 gpt-5.2、deepseek-chat 或本地模型名" autocomplete="off" spellcheck="false">
+            </div>
+            <p class="hint">兼容标准 <code>POST /chat/completions</code>。Key 可留空；Base URL 末尾不要带 <code>/chat/completions</code>。思考开关会以顶层 <code>reasoning_effort</code> 发送，不支持时自动忽略。</p>
+          </div>
+
+          <div class="test-connection" id="test-connection">
+            <button class="btn" type="button" id="settings-test">保存并测试连接</button>
+            <span class="test-result" id="test-result"></span>
           </div>
 
           <div class="settings-card thinking-card">
@@ -537,29 +588,24 @@
               <p class="hint" id="thinking-hint">中等：日常划词与导读的平衡点；思考越深越慢，但分析更充分。</p>
             </div>
           </div>
-
-          <div class="test-connection" id="test-connection">
-            <button class="btn" type="button" id="settings-test">保存并测试连接</button>
-            <span class="test-result" id="test-result"></span>
-          </div>
         </section>
 
         <section class="settings-panel" data-settings-panel="prompt">
           <div class="settings-section-head">
-            <h3>自定义划词 Prompt</h3>
-            <p>这段文字会在每次划词时发给模型。使用 <code>{selected_text}</code> 与 <code>{context_sentence}</code> 两个占位符，分别代表选中词句与上下文。</p>
+            <h3>自定义 Prompt</h3>
+            <p>选择要编辑的 Prompt。可修改划词解析、章节总结、全书总结、历史背景、追问与书名识别；带占位符的模板会按当前书籍/选词替换。</p>
           </div>
           <div class="settings-card">
-            <textarea id="selection-prompt" class="prompt-editor" rows="14" spellcheck="false"></textarea>
+            <label class="field">
+              <span>Prompt 类型</span>
+              <select id="prompt-kind" aria-label="选择要编辑的 Prompt"></select>
+            </label>
+            <textarea id="prompt-editor" class="prompt-editor" rows="16" spellcheck="false"></textarea>
             <div class="prompt-toolbar">
-              <div class="prompt-chips">
-                <span>插入：</span>
-                <button type="button" class="chip" data-insert-placeholder="{selected_text}">{selected_text}</button>
-                <button type="button" class="chip" data-insert-placeholder="{context_sentence}">{context_sentence}</button>
-              </div>
-              <button type="button" class="link-btn" id="reset-prompt">恢复默认</button>
+              <div class="prompt-chips" id="prompt-chips"></div>
+              <button type="button" class="link-btn" id="reset-prompt">恢复当前默认</button>
             </div>
-            <p class="hint" id="prompt-hint">建议明确输出结构、语言与长度，例如“用简体中文分点解释”。</p>
+            <p class="hint" id="prompt-hint">选择上方 Prompt 后编辑。</p>
           </div>
         </section>
 
@@ -626,12 +672,6 @@
               <p class="hint">数据库与原始文件均在项目目录；删除书籍会同时清理标注与原文件。</p>
             </div>
           </div>
-          <div class="settings-card about-meta">
-            <div><span>版本</span><strong id="about-version">v1.2.2</strong></div>
-            <div><span>前端</span><strong>原生 HTML · CSS · JavaScript</strong></div>
-            <div><span>解析引擎</span><strong id="about-engine">PyMuPDF · EbookLib</strong></div>
-            <div><span>API 文档</span><a href="/api/docs" target="_blank" rel="noopener">打开 /api/docs <svg class="icon" aria-hidden="true"><use href="#i-external"></use></svg></a></div>
-          </div>
         </section>
       </div>
       <footer class="modal-foot">
@@ -674,6 +714,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=1.2.2"></script>
+  <script src="/static/app.js?v=1.4.1"></script>
 </body>
 </html>

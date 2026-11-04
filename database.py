@@ -38,8 +38,11 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "active_model": "deepseek",
     "deepseek_key": "",
     "gemini_key": "",
-    "deepseek_model": "deepseek-chat",
-    "gemini_model": "gemini-2.5-flash",
+    "deepseek_model": "deepseek-flash",
+    "gemini_model": "gemini-3.8-flash",
+    "openai_key": "",
+    "openai_base_url": "https://api.openai.com/v1",
+    "openai_model": "",
     "selection_prompt": DEFAULT_SELECTION_PROMPT,
     "auto_annotate": "1",
     "auto_metadata": "1",
@@ -51,6 +54,23 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "font_size": "21",
     "reading_mode": "scroll",
     "line_width": "comfortable",
+}
+
+#: 2026 官方模型更名/下线后的兼容迁移；只迁移完全匹配的旧值，保留自定义网关模型名。
+LEGACY_MODEL_MIGRATIONS: dict[str, dict[str, str]] = {
+    "deepseek_model": {
+        "deepseek-chat": "deepseek-flash",
+        "deepseek-reasoner": "deepseek-flash",
+        "deepseek-v4-flash": "deepseek-flash",
+        "deepseek-v4-flash-vision-exp": "deepseek-flash",
+    },
+    "gemini_model": {
+        "gemini-2.0-flash": "gemini-3.8-flash",
+        "gemini-2.0-flash-lite": "gemini-3.8-flash",
+        "gemini-2.5-flash": "gemini-3.8-flash",
+        "gemini-2.5-pro": "gemini-3.8-flash",
+        "gemini-2.5-flash-lite": "gemini-3.5-flash-lite",
+    },
 }
 
 SCHEMA = """
@@ -179,6 +199,12 @@ def _seed_defaults() -> None:
     missing = {k: v for k, v in DEFAULT_SETTINGS.items() if k not in existing}
     if missing:
         set_settings(missing)
+    for setting_key, mapping in LEGACY_MODEL_MIGRATIONS.items():
+        current = get_setting(setting_key)
+        replacement = mapping.get(current or "")
+        if replacement:
+            set_setting(setting_key, replacement)
+            log.info("模型设置迁移：%s -> %s", current, replacement)
     # 首次启动自动读取项目内的 Key 文件 / 环境变量，省去手动配置。
     if not get_setting("deepseek_key"):
         seeded = _read_bundled_key()

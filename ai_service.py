@@ -90,29 +90,59 @@ def _clean_key(value: str | None) -> str:
 
 def _provider_config(provider: str | None = None) -> dict[str, Any]:
     provider = (provider or db.get_setting("active_model", "deepseek") or "deepseek").lower()
-    if provider not in {"deepseek", "gemini"}:
+    if provider not in {"deepseek", "gemini", "openai"}:
         provider = "deepseek"
     if provider == "deepseek":
         key = _clean_key(db.get_setting("deepseek_key")) or _clean_key(
             os.environ.get("DEEPSEEK_API_KEY")
         )
-        model = (db.get_setting("deepseek_model", "deepseek-chat") or "deepseek-chat").strip()
+        model = (db.get_setting("deepseek_model", "deepseek-flash") or "deepseek-flash").strip()
         base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
-    else:
+        if not key:
+            raise AIServiceError(
+                "尚未配置 DeepSeek API Key。请点击右上角 ⚙️ 设置，填入 Key 后重试。",
+                status_code=400,
+                code="missing_key",
+            )
+    elif provider == "gemini":
         key = _clean_key(db.get_setting("gemini_key")) or _clean_key(
             os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         )
-        model = (db.get_setting("gemini_model", "gemini-2.5-flash") or "gemini-2.5-flash").strip()
+        model = (db.get_setting("gemini_model", "gemini-3.8-flash") or "gemini-3.8-flash").strip()
         base = os.environ.get(
             "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
         ).rstrip("/")
-    if not key:
-        label = "DeepSeek" if provider == "deepseek" else "Gemini"
-        raise AIServiceError(
-            f"尚未配置 {label} API Key。请点击右上角 ⚙️ 设置，填入 Key 后重试。",
-            status_code=400,
-            code="missing_key",
+        if not key:
+            raise AIServiceError(
+                "尚未配置 Gemini API Key。请点击右上角 ⚙️ 设置，填入 Key 后重试。",
+                status_code=400,
+                code="missing_key",
+            )
+    else:
+        # OpenAI 兼容服务：Key 可为空（本地网关常见），但模型名必须填写。
+        key = _clean_key(db.get_setting("openai_key")) or _clean_key(
+            os.environ.get("OPENAI_API_KEY")
         )
+        model = (
+            db.get_setting("openai_model")
+            or os.environ.get("OPENAI_MODEL")
+            or ""
+        ).strip()
+        base = (
+            db.get_setting("openai_base_url")
+            or os.environ.get("OPENAI_BASE_URL")
+            or "https://api.openai.com/v1"
+        ).strip().rstrip("/")
+        if not model:
+            raise AIServiceError(
+                "尚未填写 OpenAI 兼容模型名。请在设置中选择 OpenAI 兼容服务并填写模型名。",
+                status_code=400,
+                code="missing_model",
+            )
+        if not base:
+            raise AIServiceError(
+                "尚未填写 OpenAI 兼容 Base URL。", status_code=400, code="missing_base_url"
+            )
     thinking_effort = (db.get_setting("thinking_effort", "medium") or "medium").strip().lower()
     if thinking_effort not in THINKING_EFFORTS:
         thinking_effort = "medium"
@@ -130,6 +160,18 @@ def _provider_config(provider: str | None = None) -> dict[str, Any]:
         "thinking_enabled": thinking_enabled,
         "thinking_effort": thinking_effort,
     }
+
+
+def _prompt_value(name: str) -> str:
+    """读取用户覆盖的 Prompt；空值或缺失时使用代码默认。"""
+    value = db.get_setting(name)
+    if value and value.strip():
+        return value
+    return prompts.PROMPT_DEFAULTS.get(name, "")
+
+
+def _render_prompt(name: str, values: Mapping[str, Any]) -> str:
+    return prompts.render_prompt(_prompt_value(name), dict(values))
 
 
 def _timeout() -> tuple[int, int]:
@@ -424,6 +466,113 @@ def _deepseek_chat(
     return content
 
 
+def _openai_content(message: Mapping[str, Any]) -> tuple[str, str]:
+    raw_content = message.get("content")
+    if isinstance(raw_content, list):
+        content = "".join(
+            str(part.get("text") or "")
+            for part in raw_content
+            if isinstance(part, Mapping) and part.get("type") in {None, "text", "output_text"}
+        ).strip()
+    else:
+        content = str(raw_content or "").strip()
+    reasoning = str(message.get("reasoning_content") or "").strip()
+    return content, reasoning
+
+
+def _openai_reasoning_effort(config: Mapping[str, Any]) -> str:
+    if not _thinking_enabled(config):
+        return "none"
+    effort = _thinking_effort(config)
+    # OpenAI 官方支持 none/minimal/low/medium/high；max 映射到 high 以兼容多数网关。
+    return {"low": "low", "medium": "medium", "high": "high", "max": "high"}.get(effort, "medium")
+
+
+def _openai_chat(
+    messages: Sequence[Mapping[str, str]],
+    *,
+    config: Mapping[str, Any],
+    temperature: float,
+    max_tokens: int,
+    json_mode: bool,
+) -> str:
+    """OpenAI Chat Completions 兼容实现；不发送 DeepSeek/Gemini 专属思考字段。"""
+    model = str(config["model"])
+    url = f"{config['base']}/chat/completions"
+    headers = {"Accept": "application/json"}
+    if config.get("key"):
+        headers["Authorization"] = f"Bearer {config['key']}"
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": list(messages),
+        "stream": False,
+        "max_tokens": max(1, int(max_tokens)),
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+    cache_key = _thinking_key(config)
+    if cache_key not in _THINKING_UNSUPPORTED:
+        payload["reasoning_effort"] = _openai_reasoning_effort(config)
+
+    for attempt in range(3):
+        try:
+            data = _post_json(url, headers=headers, payload=payload)
+            break
+        except AIServiceError as exc:
+            if exc.status_code != 400:
+                raise
+            message = (exc.message or "").lower()
+            changed = False
+            if "reasoning" in message and "reasoning_effort" in payload:
+                payload.pop("reasoning_effort", None)
+                _THINKING_UNSUPPORTED.add(cache_key)
+                changed = True
+            if "response_format" in message and "response_format" in payload:
+                payload.pop("response_format", None)
+                changed = True
+            if "temperature" in message and "temperature" in payload:
+                payload.pop("temperature", None)
+                changed = True
+            if "max_tokens" in message and "max_tokens" in payload:
+                payload.pop("max_tokens", None)
+                payload["max_completion_tokens"] = max(1, int(max_tokens))
+                changed = True
+            if not changed or attempt >= 2:
+                raise
+            log.warning("OpenAI 兼容接口拒绝可选参数，降级重试：%s", exc.message[:160])
+    else:  # pragma: no cover - 循环必然 break 或 raise
+        raise AIServiceError("OpenAI 兼容接口请求失败。", code="openai_error")
+
+    choices = data.get("choices") or []
+    if not choices:
+        raise AIServiceError(
+            f"OpenAI 兼容接口没有返回结果：{_api_error_message(data) or '未知原因'}",
+            code="empty_choice",
+        )
+    choice = choices[0] or {}
+    content, reasoning = _openai_content(choice.get("message") or {})
+    if not content:
+        if reasoning:
+            raise AIServiceError(
+                "模型只返回了思考过程，没有生成最终回答。请重试。",
+                status_code=502,
+                code="reasoning_only",
+            )
+        raise AIServiceError(
+            f"OpenAI 兼容接口返回了空内容（finish_reason={choice.get('finish_reason')}）。",
+            code="empty_content",
+        )
+    usage = data.get("usage") or {}
+    if usage:
+        log.info(
+            "OpenAI-compatible tokens: prompt=%s completion=%s total=%s",
+            usage.get("prompt_tokens"),
+            usage.get("completion_tokens"),
+            usage.get("total_tokens"),
+        )
+    return content
+
+
 def _gemini_thinking_config(
     config: Mapping[str, Any], *, enabled_override: bool | None = None
 ) -> tuple[dict[str, Any] | None, int]:
@@ -632,6 +781,14 @@ def chat(
     )
     if config["provider"] == "deepseek":
         return _deepseek_chat(
+            messages,
+            config=config,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=json_mode,
+        )
+    if config["provider"] == "openai":
+        return _openai_chat(
             messages,
             config=config,
             temperature=temperature,
@@ -961,6 +1118,97 @@ def _stream_gemini(
     )
 
 
+def _stream_openai(
+    messages: Sequence[Mapping[str, str]],
+    *,
+    config: Mapping[str, Any],
+    temperature: float,
+    max_tokens: int,
+    json_mode: bool,
+) -> Iterator[str]:
+    model = str(config["model"])
+    url = f"{config['base']}/chat/completions"
+    headers = {"Accept": "text/event-stream"}
+    if config.get("key"):
+        headers["Authorization"] = f"Bearer {config['key']}"
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": list(messages),
+        "stream": True,
+        "max_tokens": max(1, int(max_tokens)),
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+    cache_key = _thinking_key(config)
+    if cache_key not in _THINKING_UNSUPPORTED:
+        payload["reasoning_effort"] = _openai_reasoning_effort(config)
+
+    response = None
+    for attempt in range(3):
+        try:
+            response = _open_stream(url, headers=headers, payload=payload)
+            break
+        except AIServiceError as exc:
+            if exc.status_code != 400:
+                raise
+            message = (exc.message or "").lower()
+            changed = False
+            if "reasoning" in message and "reasoning_effort" in payload:
+                payload.pop("reasoning_effort", None)
+                _THINKING_UNSUPPORTED.add(cache_key)
+                changed = True
+            if "max_tokens" in message and "max_tokens" in payload:
+                payload.pop("max_tokens", None)
+                payload["max_completion_tokens"] = max(1, int(max_tokens))
+                changed = True
+            if not changed or attempt >= 2:
+                raise
+            log.warning("OpenAI 兼容流式接口拒绝可选参数，降级重试：%s", exc.message[:160])
+    if response is None:  # pragma: no cover
+        raise AIServiceError("OpenAI 兼容流式请求失败。", code="openai_error")
+
+    received: list[str] = []
+    finish: str | None = None
+    try:
+        with response:
+            for data in _iter_sse_data(response):
+                try:
+                    chunk = json.loads(data)
+                except ValueError:
+                    continue
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                choice = choices[0] or {}
+                delta = choice.get("delta") or {}
+                if delta.get("reasoning_content"):
+                    continue
+                text = delta.get("content") or ""
+                if text:
+                    received.append(str(text))
+                    yield str(text)
+                if choice.get("finish_reason"):
+                    finish = choice.get("finish_reason")
+    except requests.RequestException as exc:
+        raise AIServiceError(
+            "AI 流式连接中断，已生成的文字可能不完整，请重试。",
+            status_code=502,
+            code="stream_interrupted",
+        ) from exc
+
+    if "".join(received).strip():
+        return
+    # 有些兼容网关对 stream 支持不完整；没有正文时回退到非流式请求。
+    log.warning("OpenAI 兼容接口流式未返回正文，回退到非流式请求：%s", finish)
+    yield _openai_chat(
+        messages,
+        config=config,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        json_mode=json_mode,
+    )
+
+
 def stream_chat(
     messages: Sequence[Mapping[str, str]],
     *,
@@ -981,6 +1229,14 @@ def stream_chat(
     )
     if config["provider"] == "deepseek":
         yield from _stream_deepseek(
+            messages,
+            config=config,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=json_mode,
+        )
+    elif config["provider"] == "openai":
+        yield from _stream_openai(
             messages,
             config=config,
             temperature=temperature,
@@ -1069,15 +1325,28 @@ def generate_book_background(
     """生成【全书概要 / 作者生平 / 历史文化背景】。"""
     query = " ".join(part for part in [title, author or "", "Hintergrund Entstehung Interpretation"] if part)
     search = web_search(query)
-    user_prompt = prompts.book_background_user_prompt(
-        title=title,
-        author=author or "",
-        excerpt=_truncate(excerpt, 2600),
-        search_summaries=search.get("summaries") or None,
+    summaries = search.get("summaries") or []
+    reference = ""
+    if summaries:
+        joined = "\n\n".join(f"[{index + 1}] {summary}" for index, summary in enumerate(summaries))
+        reference = f"""
+下面是从网络检索到的参考资料（可能有噪声，请交叉判断，不必逐条引用）：
+\"\"\"
+{joined}
+\"\"\"
+"""
+    user_prompt = _render_prompt(
+        "prompt_background_user",
+        {
+            "title": title,
+            "author": author or "（未知，请根据文本谨慎推断，无法确定时写“不详”）",
+            "excerpt": _truncate(excerpt, 2600),
+            "reference": reference,
+        },
     )
     raw = chat(
         [
-            {"role": "system", "content": prompts.BOOK_BACKGROUND_SYSTEM_PROMPT},
+            {"role": "system", "content": _prompt_value("prompt_background_system")},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.45,
@@ -1138,19 +1407,21 @@ def generate_chapter_guide(
     *,
     language: str = "de",
 ) -> dict[str, Any]:
-    """生成章节概要 + 3 个探究问题；JSON 失败时降级提取。"""
+    """生成章节概要 + 1–3 个探究问题；JSON 失败时降级提取。"""
+    system = _prompt_value("prompt_chapter_system")
+    user_prompt = _render_prompt(
+        "prompt_chapter_user",
+        {
+            "book_title": book_title,
+            "chapter_title": chapter_title,
+            "chapter_text": _chapter_excerpt(chapter_text),
+            "language": language,
+        },
+    )
     raw = chat(
         [
-            {"role": "system", "content": prompts.CHAPTER_GUIDE_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": prompts.chapter_guide_user_prompt(
-                    book_title=book_title,
-                    chapter_title=chapter_title,
-                    chapter_text=_chapter_excerpt(chapter_text),
-                    language=language,
-                ),
-            },
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_prompt},
         ],
         temperature=0.55,
         max_tokens=1400,
@@ -1173,8 +1444,8 @@ def generate_chapter_guide(
     if not summary:
         summary = _fallback_summary(raw)
         degraded = True
-    if len(questions) < 3:
-        questions.extend(_fallback_questions(chapter_title, len(questions)))
+    if not questions:
+        questions = _fallback_questions(chapter_title, 0)
         degraded = True
     questions = [_truncate(q, 180) for q in questions[:3]]
     return {
@@ -1231,7 +1502,7 @@ def _selection_messages(
 ) -> list[dict[str, str]]:
     template = prompt_template
     if template is None:
-        template = db.get_setting("selection_prompt") or prompts.DEFAULT_SELECTION_PROMPT
+        template = _prompt_value("selection_prompt")
     user_prompt = _build_selection_prompt(template, selected_text, context_sentence)
     system = (
         "你是一位精通德语语法、词汇与德国文化的私教，回答面向中文母语的德语学习者。"
@@ -1310,18 +1581,18 @@ def _followup_messages(
     messages: list[dict[str, str]] = [
         {
             "role": "system",
-            "content": prompts.FOLLOWUP_SYSTEM_PROMPT
-            + (f" 当前阅读：《{book_title}》。" if book_title else ""),
-        },
-        {
-            "role": "user",
-            "content": prompts.followup_context_prompt(
-                selected_text=selected_text,
-                context_sentence=context_sentence,
-                explanation=explanation,
+            "content": _prompt_value("prompt_followup_system")
+            + (f" 当前阅读：《{book_title}》。" if book_title else "")
+            + "\n\n"
+            + _render_prompt(
+                "prompt_followup_context",
+                {
+                    "selected_text": selected_text,
+                    "context_sentence": context_sentence,
+                    "explanation": explanation[:4000],
+                },
             ),
-        },
-        {"role": "assistant", "content": "已了解原句、上下文与首次解析。请提问。"},
+        }
     ]
     for message in history:
         role = str(message.get("role", ""))
@@ -1389,10 +1660,13 @@ def chat_followup_stream(
 def identify_book(filename: str, excerpt: str) -> dict[str, Any]:
     raw = chat(
         [
-            {"role": "system", "content": prompts.IDENTIFY_BOOK_SYSTEM_PROMPT},
+            {"role": "system", "content": _prompt_value("prompt_identify_system")},
             {
                 "role": "user",
-                "content": prompts.identify_book_user_prompt(filename=filename, excerpt=excerpt),
+                "content": _render_prompt(
+                    "prompt_identify_user",
+                    {"filename": filename, "excerpt": excerpt[:1600]},
+                ),
             },
         ],
         temperature=0.2,
@@ -1427,17 +1701,40 @@ def provider_status() -> dict[str, Any]:
     gemini_key = _clean_key(db.get_setting("gemini_key")) or _clean_key(
         os.environ.get("GEMINI_API_KEY")
     )
+    openai_key = _clean_key(db.get_setting("openai_key")) or _clean_key(
+        os.environ.get("OPENAI_API_KEY")
+    )
+    openai_model = (db.get_setting("openai_model") or os.environ.get("OPENAI_MODEL") or "").strip()
     effort = (db.get_setting("thinking_effort", "medium") or "medium").strip().lower()
+    try:
+        _provider_config(active)
+        ready = True
+    except AIServiceError:
+        ready = False
     return {
-        "active_model": active if active in {"deepseek", "gemini"} else "deepseek",
-        "deepseek_model": db.get_setting("deepseek_model", "deepseek-chat"),
-        "gemini_model": db.get_setting("gemini_model", "gemini-2.5-flash"),
+        "active_model": active if active in {"deepseek", "gemini", "openai"} else "deepseek",
+        "ready": ready,
+        "deepseek_model": db.get_setting("deepseek_model", "deepseek-flash"),
+        "gemini_model": db.get_setting("gemini_model", "gemini-3.8-flash"),
+        "openai_model": openai_model,
+        "openai_base_url": db.get_setting("openai_base_url", "https://api.openai.com/v1"),
         "has_deepseek_key": bool(deepseek_key),
         "has_gemini_key": bool(gemini_key),
+        "has_openai_key": bool(openai_key),
+        "openai_ready": bool(openai_model),
         "thinking_enabled": (db.get_setting("thinking_enabled", "1") or "1").strip().lower()
         not in {"0", "false", "off", "no"},
         "thinking_effort": effort if effort in THINKING_EFFORTS else "medium",
     }
+
+
+def provider_ready(provider: str | None = None) -> bool:
+    """当前供应商是否具备发起请求的最低配置。"""
+    try:
+        _provider_config(provider)
+        return True
+    except AIServiceError:
+        return False
 
 
 def test_connection(provider: str | None = None) -> dict[str, Any]:

@@ -35,6 +35,17 @@ class TestSchema:
         assert db.get_book(book_id) is not None
         assert db.get_book(book_id)["chapter_count"] == 2
 
+    def test_legacy_model_names_migrate(self):
+        db.set_setting("deepseek_model", "deepseek-chat")
+        db.set_setting("gemini_model", "gemini-2.5-flash")
+        db.init_db()
+        assert db.get_setting("deepseek_model") == "deepseek-flash"
+        assert db.get_setting("gemini_model") == "gemini-3.8-flash"
+
+    def test_current_model_defaults(self):
+        assert db.DEFAULT_SETTINGS["deepseek_model"] == "deepseek-flash"
+        assert db.DEFAULT_SETTINGS["gemini_model"] == "gemini-3.8-flash"
+
 
 class TestBooksAndChapters:
     def test_crud_and_progress(self):

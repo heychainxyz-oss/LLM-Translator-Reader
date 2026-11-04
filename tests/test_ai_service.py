@@ -197,15 +197,82 @@ class TestProviderRequests:
         reply = ai_service.chat([{"role": "user", "content": "Hallo"}], json_mode=True)
         assert reply == "Hallo zurück"
         assert captured["url"].endswith("/chat/completions")
-        assert captured["payload"]["model"] == "deepseek-chat"
+        assert captured["payload"]["model"] == "deepseek-flash"
         assert captured["payload"]["response_format"] == {"type": "json_object"}
         assert captured["headers"]["Authorization"].startswith("Bearer sk-")
+
+    def test_openai_request_shape(self, monkeypatch):
+        db.set_setting("openai_key", "sk-test-openai")
+        db.set_setting("openai_base_url", "http://localhost:1234/v1/")
+        db.set_setting("openai_model", "local-model")
+        db.set_setting("active_model", "openai")
+        captured = {}
+
+        def fake_post(url, **kwargs):
+            captured["url"] = url
+            captured["payload"] = kwargs["payload"]
+            captured["headers"] = kwargs["headers"]
+            return {"choices": [{"message": {"content": "Hallo"}}]}
+
+        monkeypatch.setattr(ai_service, "_post_json", fake_post)
+        assert ai_service.chat([{"role": "user", "content": "Hallo"}]) == "Hallo"
+        assert captured["url"] == "http://localhost:1234/v1/chat/completions"
+        assert captured["payload"]["model"] == "local-model"
+        assert captured["payload"]["stream"] is False
+        assert "thinking" not in captured["payload"]
+        assert captured["payload"]["reasoning_effort"] == "medium"
+        assert captured["headers"]["Authorization"] == "Bearer sk-test-openai"
+
+    def test_openai_key_is_optional_but_model_is_required(self):
+        db.set_setting("openai_key", "")
+        db.set_setting("openai_model", "local-model")
+        db.set_setting("openai_base_url", "http://localhost:11434/v1")
+        db.set_setting("active_model", "openai")
+        config = ai_service._provider_config()
+        assert config["key"] == ""
+        assert config["model"] == "local-model"
+        db.set_setting("openai_model", "")
+        with pytest.raises(ai_service.AIServiceError) as info:
+            ai_service._provider_config()
+        assert info.value.code == "missing_model"
+
+    def test_openai_thinking_effort_and_fallback(self, monkeypatch):
+        db.set_setting("openai_key", "sk-test-openai")
+        db.set_setting("openai_base_url", "http://localhost:1234/v1")
+        db.set_setting("openai_model", "local-model")
+        db.set_setting("active_model", "openai")
+        db.set_setting("thinking_enabled", "0")
+        captured = {}
+
+        def fake_post(url, **kwargs):
+            captured.update(kwargs["payload"])
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+        monkeypatch.setattr(ai_service, "_post_json", fake_post)
+        assert ai_service.chat([{"role": "user", "content": "Hi"}]) == "ok"
+        assert captured["reasoning_effort"] == "none"
+
+        ai_service._THINKING_UNSUPPORTED.clear()
+        db.set_setting("thinking_enabled", "1")
+        calls = []
+
+        def fake_post_with_rejection(url, **kwargs):
+            calls.append(kwargs["payload"].copy())
+            if len(calls) == 1:
+                raise ai_service.AIServiceError(
+                    "Unsupported parameter: reasoning_effort", status_code=400
+                )
+            return {"choices": [{"message": {"content": "final"}}]}
+
+        monkeypatch.setattr(ai_service, "_post_json", fake_post_with_rejection)
+        assert ai_service.chat([{"role": "user", "content": "Hi"}]) == "final"
+        assert calls[0]["reasoning_effort"] == "medium"
+        assert "reasoning_effort" not in calls[1]
 
     def test_gemini_request_shape(self, monkeypatch):
         db.set_setting("gemini_key", "AIza-test-key")
         db.set_setting("active_model", "gemini")
         captured = {}
-
         def fake_post(url, **kwargs):
             captured["url"] = url
             captured["payload"] = kwargs["payload"]
@@ -270,6 +337,17 @@ class TestProviderRequests:
         assert "第一问" in contents
         assert "第一答" in contents
         assert contents[-1] == "第二问"
+        context_prompt = ai_service.prompts.render_prompt(
+            ai_service.prompts.FOLLOWUP_CONTEXT_TEMPLATE,
+            {
+                "selected_text": "verhaftet",
+                "context_sentence": "Er wurde verhaftet.",
+                "explanation": "解析",
+            },
+        )
+        assert sum(1 for content in contents if context_prompt in content) == 1
+        assert all(message["role"] != "assistant" or message["content"] != "已了解原句、上下文与首次解析。请提问。" for message in captured["messages"])
+        assert captured["messages"][0]["role"] == "system"
 
 
 class TestStatus:
@@ -424,7 +502,7 @@ class TestThinkingMode:
         assert result == "这是正式回答"
         assert "思考" not in result
         config = captured["generationConfig"]["thinkingConfig"]
-        assert config["thinkingBudget"] == 4096
+        assert config["thinkingLevel"] == "medium"
         assert config["includeThoughts"] is False
         assert captured["generationConfig"]["maxOutputTokens"] > 4096
 
@@ -455,7 +533,7 @@ class TestThinkingMode:
         result = ai_service.chat([{"role": "user", "content": "Hallo"}])
         assert result == "正式回答"
         assert len(calls) == 2
-        assert calls[1]["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 0
+        assert calls[1]["generationConfig"]["thinkingConfig"]["thinkingLevel"] == "low"
 
     def test_gemini_config_levels(self):
         base = {"provider": "gemini", "thinking_enabled": True, "thinking_effort": "high"}
@@ -571,3 +649,117 @@ class TestStreaming:
         assert "".join(ai_service.stream_chat([{"role": "user", "content": "Hallo"}])) == "正式回答"
         assert captured["url"].endswith(":streamGenerateContent?alt=sse")
         assert captured["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 4096
+
+    def test_openai_stream(self, monkeypatch):
+        db.set_setting("openai_key", "sk-test-openai")
+        db.set_setting("openai_base_url", "http://localhost:1234/v1")
+        db.set_setting("openai_model", "local-model")
+        db.set_setting("active_model", "openai")
+        captured = {}
+
+        def fake_open(url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs["payload"])
+            return FakeStreamResponse(
+                [
+                    b'data: {"choices":[{"delta":{"content":"Hallo"}}]}',
+                    b'data: {"choices":[{"delta":{"content":" Welt"}}]}',
+                    b"data: [DONE]",
+                ]
+            )
+
+        monkeypatch.setattr(ai_service, "_open_stream", fake_open)
+        assert "".join(ai_service.stream_chat([{"role": "user", "content": "Hallo"}])) == "Hallo Welt"
+        assert captured["url"] == "http://localhost:1234/v1/chat/completions"
+        assert captured["model"] == "local-model"
+        assert captured["stream"] is True
+        assert "thinking" not in captured
+        assert captured["reasoning_effort"] == "medium"
+
+
+class TestPromptOverrides:
+    def test_chapter_prompts_are_overridable(self, monkeypatch):
+        db.set_setting("prompt_chapter_system", "CUSTOM CHAPTER SYSTEM")
+        db.set_setting(
+            "prompt_chapter_user",
+            "B={book_title}|C={chapter_title}|T={chapter_text}|L={language}",
+        )
+        captured = {}
+
+        def fake_chat(messages, **kwargs):
+            captured["messages"] = messages
+            return '{"summary":"s","questions":["q1","q2","q3"]}'
+
+        monkeypatch.setattr(ai_service, "chat", fake_chat)
+        result = ai_service.generate_chapter_guide("Buch", "Kapitel", "Text", language="de")
+        assert result["questions"] == ["q1", "q2", "q3"]
+        assert captured["messages"][0]["content"] == "CUSTOM CHAPTER SYSTEM"
+        assert captured["messages"][1]["content"] == "B=Buch|C=Kapitel|T=Text|L=de"
+
+    def test_chapter_prompt_can_request_fewer_questions(self, monkeypatch):
+        db.set_setting("prompt_chapter_user", "只问 1 个问题：{chapter_text}")
+
+        def fake_chat(messages, **kwargs):
+            return '{"summary":"s","questions":["only one"]}'
+
+        monkeypatch.setattr(ai_service, "chat", fake_chat)
+        result = ai_service.generate_chapter_guide("Buch", "Kapitel", "Text")
+        assert result["questions"] == ["only one"]
+
+    def test_background_and_followup_prompts_are_overridable(self, monkeypatch):
+        db.set_setting("prompt_background_system", "CUSTOM BACKGROUND SYSTEM")
+        db.set_setting(
+            "prompt_background_user",
+            "T={title}|A={author}|E={excerpt}|R={reference}",
+        )
+        db.set_setting("prompt_followup_system", "CUSTOM FOLLOWUP SYSTEM")
+        db.set_setting(
+            "prompt_followup_context",
+            "S={selected_text}|C={context_sentence}|E={explanation}",
+        )
+        captured = []
+
+        def fake_chat(messages, **kwargs):
+            captured.append(messages)
+            if len(captured) == 1:
+                return '{"book_summary":"s","author_bio":"a","cultural_context":"c"}'
+            return "followup answer"
+
+        monkeypatch.setattr(ai_service, "chat", fake_chat)
+        monkeypatch.setattr(
+            ai_service, "web_search", lambda query: {"available": False, "summaries": []}
+        )
+        background = ai_service.generate_book_background("Buch", "Autor", "Anfang")
+        assert background["book_summary"] == "s"
+        assert captured[0][0]["content"] == "CUSTOM BACKGROUND SYSTEM"
+        assert captured[0][1]["content"] == "T=Buch|A=Autor|E=Anfang|R="
+
+        answer = ai_service.chat_followup(
+            selected_text="Wort",
+            context_sentence="Satz",
+            explanation="Erklärung",
+            history=[],
+            question="Warum?",
+            book_title="Buch",
+        )
+        assert answer == "followup answer"
+        assert captured[1][0]["role"] == "system"
+        assert "CUSTOM FOLLOWUP SYSTEM 当前阅读：《Buch》。" in captured[1][0]["content"]
+        assert "S=Wort|C=Satz|E=Erklärung" in captured[1][0]["content"]
+        assert captured[1][-1]["content"] == "Warum?"
+        assert len(captured[1]) == 2
+
+    def test_identify_prompts_are_overridable(self, monkeypatch):
+        db.set_setting("prompt_identify_system", "CUSTOM IDENTIFY SYSTEM")
+        db.set_setting("prompt_identify_user", "F={filename}|E={excerpt}")
+        captured = {}
+
+        def fake_chat(messages, **kwargs):
+            captured["messages"] = messages
+            return '{"title":"Buch","author":"Autor","confidence":"high","reason":"ok"}'
+
+        monkeypatch.setattr(ai_service, "chat", fake_chat)
+        result = ai_service.identify_book("file.txt", "Anfang")
+        assert result["title"] == "Buch"
+        assert captured["messages"][0]["content"] == "CUSTOM IDENTIFY SYSTEM"
+        assert captured["messages"][1]["content"] == "F=file.txt|E=Anfang"

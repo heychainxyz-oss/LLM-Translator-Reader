@@ -22,7 +22,7 @@
 | 目录与搜索 | 章节导航、全书搜索、搜索结果定位到正文段落 |
 | 语音辅助 | 德语朗读、中德语音输入、按住空格说话；可用性取决于浏览器和系统 |
 | 多端访问 | 桌面三栏布局、移动端抽屉布局，设置内提供局域网地址与二维码 |
-| 自定义 AI | 切换服务商与模型，编辑划词 Prompt，调整模型思考开关和强度 |
+| 自定义 AI | DeepSeek / Gemini / OpenAI 兼容服务；按供应商只显示相关配置，全部 Prompt 可编辑，思考开关与强度可调 |
 
 <details>
 <summary>查看更多界面截图</summary>
@@ -94,9 +94,19 @@ Windows 可双击 **`start_desktop.bat`**，或执行：
 
 ### 1. 配置 AI
 
-打开右上角设置，在 **AI 模型** 中选择 DeepSeek 或 Gemini，填写 Key 和模型名，再保存并测试连接。
+打开右上角设置，在 **AI 模型** 中选择 DeepSeek、Gemini 或 OpenAI 兼容服务；选择某个服务商时只显示它的 Key/模型/Base URL 配置。填好 Key 后保存并测试连接。
 
-代码默认模型为 `deepseek-chat` 和 `gemini-2.5-flash`。请按自己的账号权限填写实际可用的模型名；模型和网关对思考参数的支持可能不同。
+当前预设：
+
+| 服务 | 推荐 | 其他 |
+| --- | --- | --- |
+| DeepSeek | `deepseek-flash`（1M 上下文，支持图像） | `deepseek-v4-pro`（旗舰推理，不支持图像） |
+| Gemini | `gemini-3.8-flash`（1M 上下文，低延迟） | `gemini-4-argon`（旗舰）、`gemini-3.5-flash-lite`（轻量） |
+| OpenAI 兼容 | 自定义 `Base URL` + 模型名 | 任意实现 `POST /chat/completions` 的服务 |
+
+需要接兼容网关或旧模型时，选「自定义兼容模型…」并填写完整模型名。旧默认值 `deepseek-chat` / `deepseek-reasoner` / `gemini-2.5-flash` 等会在启动时自动迁移到新预设；自定义网关模型名不会被改动。参考：[DeepSeek 模型与价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing)、[Gemini 模型列表](https://ai.google.dev/gemini-api/docs/models)。
+
+**OpenAI 兼容服务**：填写 Base URL（例如 `https://api.openai.com/v1` 或 `http://localhost:11434/v1`，不要带 `/chat/completions`）和模型名；Key 可留空（本地网关常见）。程序按标准 Chat Completions 发送 `model/messages/stream/max_tokens`，并按「模型思考」开关发送顶层 `reasoning_effort`（关闭为 `none`，低/中/高/最高映射为 low/medium/high/high）；网关不支持时自动省略该参数。不发送 DeepSeek/Gemini 专属的 `thinking` 对象或 `thinkingConfig`。
 
 ### 2. 导入书籍
 
@@ -135,11 +145,11 @@ PDF 优先使用一级书签分章；EPUB 结合目录与正文结构；纯文�
 
 ## 模型与配置
 
-日常使用可直接在设置中修改模型、Key、思考强度、划词 Prompt 和阅读偏好。
+日常使用可直接在设置中切换供应商、修改 Key / Base URL / 模型、调整思考强度，并编辑全部 Prompt 与阅读偏好。
 
 ### API Key
 
-调用时优先使用设置中保存的 Key，其次读取 `DEEPSEEK_API_KEY` 或 `GEMINI_API_KEY`；Gemini 也支持 `GOOGLE_API_KEY`。
+调用时优先使用设置中保存的 Key，其次读取环境变量：`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`（或 `GOOGLE_API_KEY`）、`OPENAI_API_KEY`。OpenAI 兼容服务的 Key 可以留空，适合本地网关。
 
 程序还会在数据库中未保存 DeepSeek Key 时尝试初始化：先查找项目根目录中的 `DeepSeek API Key.txt`、`deepseek_api_key.txt`、`deepseek.key`，再检查 `DEEPSEEK_API_KEY`。符合格式的 Key 会写入数据库。设置 `READER_SKIP_BUNDLED_KEY=1` 可跳过这一步，运行时仍可读取环境变量。
 
@@ -173,6 +183,9 @@ READER_HOST=127.0.0.1 READER_SKIP_BUNDLED_KEY=1 DEEPSEEK_API_KEY='填入你的 A
 | `READER_SKIP_BUNDLED_KEY` | 未启用 | `1` 时跳过 DeepSeek Key 自动初始化 |
 | `DEEPSEEK_API_KEY` | 空 | DeepSeek Key |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | 空 | Gemini Key |
+| `OPENAI_API_KEY` | 空 | OpenAI 兼容服务 Key（可留空） |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI 兼容服务基础地址 |
+| `OPENAI_MODEL` | 空 | OpenAI 兼容服务模型名 |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | DeepSeek 请求基础地址 |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | Gemini 请求基础地址 |
 | `DEEPSEEK_SEARCH_URL` | `https://api.deepseek.com/v1/tools/search` | 背景生成所尝试的检索接口 |
@@ -185,19 +198,22 @@ READER_HOST=127.0.0.1 READER_SKIP_BUNDLED_KEY=1 DEEPSEEK_API_KEY='填入你的 A
 
 ### 自定义 Prompt
 
-划词解析模板可在设置中编辑或恢复默认，保留 `{selected_text}` 与 `{context_sentence}` 两个占位符。
+设置 → **Prompt** 里可以从下拉框选择并编辑全部模板，不再只限于划词解析：
 
-其他模板集中在 [prompts.py](prompts.py)：
-
-| 内容 | 模板或函数 |
+| 可编辑内容 | 占位符 |
 | --- | --- |
-| 默认划词解析 | `DEFAULT_SELECTION_PROMPT` |
-| 章节导读 | `CHAPTER_GUIDE_SYSTEM_PROMPT` / `chapter_guide_user_prompt` |
-| 全书背景 | `BOOK_BACKGROUND_SYSTEM_PROMPT` / `book_background_user_prompt` |
-| 多轮追问 | `FOLLOWUP_SYSTEM_PROMPT` / `followup_context_prompt` |
-| 书名与作者识别 | `IDENTIFY_BOOK_SYSTEM_PROMPT` / `identify_book_user_prompt` |
+| 划词解析 | `{selected_text}`、`{context_sentence}` |
+| 章节导读 · 系统提示 | 无 |
+| 章节总结与问题 · 用户提示 | `{book_title}`、`{chapter_title}`、`{chapter_text}`、`{language}` |
+| 全书背景 · 系统提示 | 无 |
+| 全书总结与历史背景 · 用户提示 | `{title}`、`{author}`、`{excerpt}`、`{reference}` |
+| 多轮追问 · 系统提示 | 无 |
+| 追问上下文（合并进系统背景，只插入一份） | `{selected_text}`、`{context_sentence}`、`{explanation}` |
+| 书名与作者识别 · 系统/用户提示 | `{filename}`、`{excerpt}` |
 
-修改代码模板后重启服务。已有解析、背景和导读会继续使用缓存，需要手动重新生成；设置中已保存的划词模板优先于代码默认值。
+编辑器的「恢复当前默认」只恢复当前选中的模板。模板代码默认值集中在 [prompts.py](prompts.py)（`PROMPT_DEFINITIONS` / `PROMPT_DEFAULTS`）；设置中保存的覆盖值优先，空值回退代码默认。修改代码模板后重启服务；已有解析、背景和导读继续使用缓存，需要手动重新生成。
+
+「追问上下文」不再作为一条重复的用户消息插入：它合并进系统背景，每次请求只出现一份；后续对话按正常的 `user/assistant` 历史追加，不再包含“已了解……”这类假确认消息。
 
 ## 数据与隐私
 

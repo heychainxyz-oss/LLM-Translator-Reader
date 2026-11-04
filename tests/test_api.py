@@ -9,6 +9,7 @@ import pymupdf as fitz
 import pytest
 
 import ai_service
+import database as db
 from conftest import GERMAN_TEXT, import_text
 
 
@@ -56,6 +57,7 @@ class TestHealthAndImport:
         }
 
     def test_import_txt_generates_background_and_guides(self, client):
+        db.set_setting("deepseek_key", "sk-test-key-123456")
         book = import_text(client)
         assert book["title"] == "Der Prozess"
         assert book["author"] == "Franz Kafka"
@@ -149,6 +151,7 @@ class TestChapters:
         assert client.get(f"/api/books/{book['id']}").json()["current_chapter"] == 0
 
     def test_prepare_guide_lazy(self, client):
+        db.set_setting("deepseek_key", "sk-test-key-123456")
         book = import_text(client)
         chapters = client.get(f"/api/books/{book['id']}/chapters").json()["chapters"]
         target = chapters[2]
@@ -161,6 +164,7 @@ class TestChapters:
         assert len(refreshed["questions"]) == 3
 
     def test_generate_guide_force(self, client):
+        db.set_setting("deepseek_key", "sk-test-key-123456")
         book = import_text(client)
         response = client.post(f"/api/books/{book['id']}/chapters/0/guide?force=true")
         assert response.status_code == 200
@@ -385,14 +389,58 @@ class TestSettings:
         assert invalid.status_code == 422
         assert "请求参数不合法" in invalid.json()["detail"]
 
+    def test_guide_requires_available_model(self, client):
+        book = import_text(client)
+        chapter, _ = first_paragraph(client, book["id"])
+        response = client.post(
+            f"/api/books/{book['id']}/chapters/0/guide?force=true"
+        )
+        assert response.status_code == 400
+        assert "未配置可用模型" in response.json()["detail"]
+        fresh = client.get(f"/api/books/{book['id']}/chapters/0").json()
+        assert fresh["is_guide_ready"] is False
+        assert not fresh.get("guide_job") or fresh["guide_job"].get("status") != "running"
+        prepare = client.post(f"/api/chapters/{chapter['id']}/prepare_guide")
+        assert prepare.status_code == 200
+        assert prepare.json()["status"] == "unavailable"
+
+    def test_openai_settings_and_prompt_overrides(self, client):
+        response = client.put(
+            "/api/settings",
+            json={
+                "active_model": "openai",
+                "openai_key": "sk-local-test",
+                "openai_base_url": "http://localhost:11434/v1",
+                "openai_model": "local-model",
+                "prompts": {
+                    "prompt_chapter_system": "CUSTOM CHAPTER SYSTEM",
+                    "prompt_background_user": "T={title}|R={reference}",
+                },
+            },
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["active_model"] == "openai"
+        assert data["has_openai_key"] is True
+        assert data["openai_base_url"] == "http://localhost:11434/v1"
+        assert data["prompts"]["prompt_chapter_system"] == "CUSTOM CHAPTER SYSTEM"
+        assert data["prompts"]["prompt_background_user"] == "T={title}|R={reference}"
+        assert data["prompt_meta"]
+
+        unknown = client.put(
+            "/api/settings", json={"prompts": {"not_a_prompt": "value"}}
+        )
+        assert unknown.status_code == 400
+        assert "未知的 Prompt" in unknown.json()["detail"]
+
     def test_update_settings_and_prompt(self, client):
         response = client.put(
             "/api/settings",
             json={
                 "active_model": "gemini",
                 "gemini_key": "AIzaTESTKEY1234567890",
-                "deepseek_model": "deepseek-chat",
-                "gemini_model": "gemini-2.5-flash",
+                "deepseek_model": "deepseek-flash",
+                "gemini_model": "gemini-3.8-flash",
                 "theme": "dark",
                 "font_size": 24,
                 "reading_mode": "paginated",
